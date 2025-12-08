@@ -7,15 +7,13 @@ import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pymupdf as fitz  # PyMuPDF
 
 from .config import Config
 from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
 
-# Configure logging
-logging.basicConfig(level = getattr(logging, Config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -50,7 +48,7 @@ class PDFStructureExtractor:
         self.font_size_histogram = defaultdict(int)
         self.heading_levels = {}
 
-    def analyze_font_sizes(self, doc: fitz.Document) -> tuple[Dict[float, int], Dict[float, str]]:
+    def analyze_font_sizes(self, doc: fitz.Document) -> Tuple[Dict[float, int], Dict[float, str]]:
         """Analyze font sizes across the document to determine heading levels."""
         font_histogram = defaultdict(int)
         total_chars = 0
@@ -76,7 +74,7 @@ class PDFStructureExtractor:
 
         # Determine heading levels based on frequency and size
         heading_levels = {}
-        if font_histogram:
+        if font_histogram and total_chars > 0:
             sorted_fonts_desc = sorted(font_histogram.items(), key=lambda x: x[0], reverse=True)
             main_font_size = max(font_histogram.items(), key=lambda x: x[1])[0]
             level_index = 1
@@ -181,6 +179,10 @@ class PDFStructureExtractor:
 
         try:
             doc = fitz.open(pdf_path)
+
+            # Validate that document has content
+            if len(doc) == 0:
+                raise InvalidPDFError("PDF document is empty")
 
             # Analyze font sizes for heading detection
             font_histogram, heading_levels = self.analyze_font_sizes(doc)
