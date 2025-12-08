@@ -54,7 +54,7 @@ jobs:
 
     - name: Run test with Pytest
       run: |
-        pytest --cov=json2xml --cov-report=xml:coverage/reports/coverage.xml --cov-report=term -xvs tests -n auto
+        pytest --cov=pdf_2_json_extractor --cov-report=xml:coverage/reports/coverage.xml --cov-report=term -xvs tests -n auto
 
 
     - name: Upload coverage to Codecov
