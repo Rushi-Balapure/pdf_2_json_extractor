@@ -2,7 +2,23 @@ name: Pytest
 permissions:
   contents: read
 
-on: [push]
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '*.rst'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '*.rst'
+
+permissions:
+  contents: read
+  checks: write    # For test results
+  pull-requests: write   # For codecov
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -56,4 +72,4 @@ jobs:
       env:
         OS: ${{ matrix.os }}
         PYTHON: ${{ matrix.python-version }}
-    
+
