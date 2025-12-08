@@ -1,4 +1,4 @@
-name: pdf_to_json linters.yml
+name: pdf_2_json_extractor linters.yml
 permissions:
   contents: read
 
@@ -34,5 +34,5 @@ jobs:
       
       - name: Run Ruff
         run: |
-          ruff check pdf_to_json
+          ruff check pdf_2_json_extractor
           ruff check tests
