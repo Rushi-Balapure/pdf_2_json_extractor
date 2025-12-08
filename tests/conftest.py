@@ -1,5 +1,5 @@
 """
-Pytest configuration and fixtures for pdf_to_json tests.
+Pytest configuration and fixtures for pdf_2_json_extractor tests.
 """
 
 import os

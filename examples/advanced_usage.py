@@ -1,12 +1,12 @@
 """
-Advanced usage examples for pdf_to_json library.
+Advanced usage examples for pdf_2_json_extractor library.
 """
 
 import json
 
-import pdf_to_json
-from pdf_to_json import Config, PDFStructureExtractor
-from pdf_to_json.exceptions import PdfToJsonError
+import pdf_2_json_extractor
+from pdf_2_json_extractor import Config, PDFStructureExtractor
+from pdf_2_json_extractor.exceptions import PdfToJsonError
 
 
 def example_batch_processing():
@@ -18,7 +18,7 @@ def example_batch_processing():
 
     for pdf_file in pdf_files:
         try:
-            result = pdf_to_json.extract_pdf_to_dict(pdf_file)
+            result = pdf_2_json_extractor.extract_pdf_to_dict(pdf_file)
             results.append({
                 "file": pdf_file,
                 "title": result["title"],
@@ -39,7 +39,7 @@ def example_heading_analysis():
     print("\n=== Heading Analysis ===")
 
     try:
-        result = pdf_to_json.extract_pdf_to_dict("sample.pdf")
+        result = pdf_2_json_extractor.extract_pdf_to_dict("sample.pdf")
 
         # Analyze heading structure
         heading_counts = {}
@@ -68,7 +68,7 @@ def example_content_filtering():
     print("\n=== Content Filtering ===")
 
     try:
-        result = pdf_to_json.extract_pdf_to_dict("sample.pdf")
+        result = pdf_2_json_extractor.extract_pdf_to_dict("sample.pdf")
 
         # Extract only headings
         headings = [
@@ -135,7 +135,7 @@ def example_export_formats():
     print("\n=== Export Formats ===")
 
     try:
-        result = pdf_to_json.extract_pdf_to_dict("sample.pdf")
+        result = pdf_2_json_extractor.extract_pdf_to_dict("sample.pdf")
 
         # Export to Markdown
         markdown_content = []
@@ -184,8 +184,8 @@ def example_export_formats():
         print(f"Error: {e}")
 
 if __name__ == "__main__":
-    print("pdf_to_json Advanced Examples")
-    print("==============================")
+    print("pdf_2_json_extractor Advanced Examples")
+    print("======================================")
 
     # Run advanced examples
     example_batch_processing()

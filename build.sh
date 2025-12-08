@@ -1,7 +1,7 @@
 #!/bin/bash
-# Build script for pdf_to_json library
+# Build script for pdf_2_json_extractor library
 
-echo "Building pdf_to_json library..."
+echo "Building pdf_2_json_extractor library..."
 
 # Clean previous builds
 echo "Cleaning previous builds..."
@@ -19,14 +19,14 @@ if [ $? -eq 0 ]; then
     ls -la dist/
     echo ""
     echo "To install the library:"
-    echo "pip install dist/pdf_to_json-1.0.0-py3-none-any.whl"
+    echo "pip install dist/pdf_2_json_extractor-1.0.0-py3-none-any.whl"
     echo ""
     echo "To upload to PyPI:"
     echo "twine upload dist/*"
     echo ""
     echo "To test the library:"
-    echo "pip install dist/pdf_to_json-1.0.0-py3-none-any.whl"
-    echo "python -c \"import pdf_to_json; print('Library installed successfully!')\""
+    echo "pip install dist/pdf_2_json_extractor-1.0.0-py3-none-any.whl"
+    echo "python -c \"import pdf_2_json_extractor; print('Library installed successfully!')\""
 else
     echo "Build failed!"
     exit 1
