@@ -1,8 +1,8 @@
 #!/bin/bash
-# Performance benchmark script for pdf_to_json library
+# Performance benchmark script for pdf_2_json_extractor library
 
-echo "pdf_to_json Library Performance Benchmark"
-echo "=========================================="
+echo "pdf_2_json_extractor Library Performance Benchmark"
+echo "=================================================="
 
 # Create test directory
 mkdir -p benchmark_results
@@ -20,12 +20,12 @@ run_benchmark() {
         echo -n "Iteration $i: "
         start_time=$(date +%s.%N)
 
-        # Use the new library API
+        # Use the library API
         python3 -c "
-import pdf_to_json
+import pdf_2_json_extractor
 import sys
 try:
-    result = pdf_to_json.extract_pdf_to_dict('$pdf_file')
+    result = pdf_2_json_extractor.extract_pdf_to_dict('$pdf_file')
     print(f'Title: {result[\"title\"]}')
     print(f'Pages: {result[\"stats\"][\"page_count\"]}')
     print(f'Sections: {result[\"stats\"][\"num_sections\"]}')
@@ -53,10 +53,10 @@ if [ ! -d "test" ]; then
     exit 1
 fi
 
-# Check if pdf_to_json is installed
-if ! python3 -c "import pdf_to_json" 2>/dev/null; then
-    echo "Error: pdf_to_json library not installed"
-    echo "Install with: pip install pdf_to_json"
+# Check if pdf_2_json_extractor is installed
+if ! python3 -c "import pdf_2_json_extractor" 2>/dev/null; then
+    echo "Error: pdf_2_json_extractor library not installed"
+    echo "Install with: pip install pdf_2_json_extractor"
     exit 1
 fi
 

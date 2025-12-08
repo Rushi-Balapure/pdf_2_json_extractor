@@ -1,5 +1,5 @@
 """
-Advanced configuration for pdf_to_json library.
+Advanced configuration for pdf_2_json_extractor library.
 Allows fine-tuning of extraction parameters.
 """
 
@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 
 class Config:
-    """Configuration class for pdf_to_json library."""
+    """Configuration class for pdf_2_json_extractor library."""
 
     # Performance settings
     MAX_PAGES_FOR_FONT_ANALYSIS = int(os.getenv('PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS', '10'))

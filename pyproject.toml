@@ -3,16 +3,16 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pdf_to_json"
+name = "pdf_2_json_extractor"
 version = "1.0.0"
 description = "A high-performance PDF to JSON extraction library with layout-aware text extraction"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "pdf_to_json Team", email = "rishibalapure12@gmail.com"}
+    {name = "pdf_2_json_extractor Team", email = "rishibalapure12@gmail.com"}
 ]
 maintainers = [
-    {name = "pdf_to_json Team", email = "rishibalapure12@gmail.com"}
+    {name = "pdf_2_json_extractor Team", email = "rishibalapure12@gmail.com"}
 ]
 keywords = ["pdf", "json", "extraction", "text", "processing", "layout", "analysis"]
 classifiers = [
@@ -42,17 +42,17 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-username/pdf_to_json"
-Documentation = "https://github.com/your-username/pdf_to_json#readme"
-Repository = "https://github.com/your-username/pdf_to_json"
-"Bug Tracker" = "https://github.com/your-username/pdf_to_json/issues"
+Homepage = "https://github.com/your-username/pdf_2_json_extractor"
+Documentation = "https://github.com/your-username/pdf_2_json_extractor#readme"
+Repository = "https://github.com/your-username/pdf_2_json_extractor"
+"Bug Tracker" = "https://github.com/your-username/pdf_2_json_extractor/issues"
 
 [project.scripts]
-pdf_to_json = "pdf_to_json.cli:main"
+pdf_2_json_extractor = "pdf_2_json_extractor.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["pdf_to_json*"]
+include = ["pdf_2_json_extractor*"]
 
 [tool.ruff]
 exclude = [
@@ -101,7 +101,7 @@ warn_unreachable = true
 strict_equality = true
 
 [tool.coverage.run]
-source = ["pdf_to_json"]
+source = ["pdf_2_json_extractor"]
 omit = [
     "*/tests/*",
     "*/test_*",

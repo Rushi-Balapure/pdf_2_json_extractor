@@ -1,5 +1,5 @@
 """
-pdf_to_json - A high-performance PDF to JSON extraction library.
+pdf_2_json_extractor - A high-performance PDF to JSON extraction library.
 
 This library extracts structured content from PDF documents while preserving
 document layout semantics such as headings (H1-H6) and body text, outputting

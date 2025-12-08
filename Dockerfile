@@ -1,4 +1,4 @@
-# Multi-stage build for pdf_to_json library
+# Multi-stage build for pdf_2_json_extractor library
 FROM python:3.11-slim as builder
 
 # Install system dependencies needed for building
@@ -48,25 +48,25 @@ ENV PYTHONOPTIMIZE=2
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import pdf_to_json; print('pdf_to_json library ready')" || exit 1
+    CMD python -c "import pdf_2_json_extractor; print('pdf_2_json_extractor library ready')" || exit 1
 
 # Create a simple CLI script
 RUN echo '#!/usr/bin/env python3\n\
 import sys\n\
-import pdf_to_json\n\
+import pdf_2_json_extractor\n\
 import json\n\
 \n\
 if len(sys.argv) != 2:\n\
-    print("Usage: pdf_to_json <pdf_file>")\n\
+    print("Usage: pdf_2_json_extractor <pdf_file>")\n\
     sys.exit(1)\n\
 \n\
 try:\n\
-    result = pdf_to_json.extract_pdf_to_dict(sys.argv[1])\n\
+    result = pdf_2_json_extractor.extract_pdf_to_dict(sys.argv[1])\n\
     print(json.dumps(result, indent=2))\n\
 except Exception as e:\n\
-    print(f"Error: {e}", file=sys.stderr)\n\
-    sys.exit(1)' > /home/app/pdf_to_json_cli.py && \
-    chmod +x /home/app/pdf_to_json_cli.py
+    print(f\"Error: {e}\", file=sys.stderr)\n\
+    sys.exit(1)' > /home/app/pdf_2_json_extractor_cli.py && \
+    chmod +x /home/app/pdf_2_json_extractor_cli.py
 
 # Entry point
-ENTRYPOINT ["python", "/home/app/pdf_to_json_cli.py"]
+ENTRYPOINT ["python", "/home/app/pdf_2_json_extractor_cli.py"]

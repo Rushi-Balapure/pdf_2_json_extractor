@@ -1,5 +1,5 @@
 """
-Unit tests for pdf_to_json extractor.
+Unit tests for pdf_2_json_extractor extractor.
 """
 
 import os
@@ -8,9 +8,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from pdf_to_json.config import Config
-from pdf_to_json.exceptions import PDFFileNotFoundError, PDFProcessingError
-from pdf_to_json.extractor import PDFStructureExtractor
+from pdf_2_json_extractor.config import Config
+from pdf_2_json_extractor.exceptions import PDFFileNotFoundError, PDFProcessingError
+from pdf_2_json_extractor.extractor import PDFStructureExtractor
 
 
 class TestPDFStructureExtractor:
@@ -39,7 +39,7 @@ class TestPDFStructureExtractor:
         with pytest.raises(PDFFileNotFoundError):
             self.extractor.extract_text_with_structure("nonexistent.pdf")
 
-    @patch('pdf_to_json.extractor.fitz.open')
+    @patch('pdf_2_json_extractor.extractor.fitz.open')
     def test_extract_text_with_structure_invalid_pdf(self, mock_fitz_open):
         """Test error handling for invalid PDF."""
         mock_fitz_open.side_effect = Exception("Invalid PDF")
@@ -54,7 +54,7 @@ class TestPDFStructureExtractor:
         finally:
             os.unlink(tmp_path)
 
-    @patch('pdf_to_json.extractor.fitz.open')
+    @patch('pdf_2_json_extractor.extractor.fitz.open')
     def test_extract_text_with_structure_success(self, mock_fitz_open):
         """Test successful PDF extraction."""
         # Mock document

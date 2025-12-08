@@ -4,4 +4,4 @@ include requirements.txt
 include pyproject.toml
 recursive-include examples *.py
 recursive-include tests *.py
-recursive-include pdf_to_json *.py
+recursive-include pdf_2_json_extractor *.py

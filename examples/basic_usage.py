@@ -1,9 +1,9 @@
 """
-Basic usage examples for pdf_to_json library.
+Basic usage examples for pdf_2_json_extractor library.
 """
 
-import pdf_to_json
-from pdf_to_json.exceptions import PdfToJsonError
+import pdf_2_json_extractor
+from pdf_2_json_extractor.exceptions import PdfToJsonError
 
 
 def example_basic_extraction():
@@ -12,7 +12,7 @@ def example_basic_extraction():
 
     try:
         # Extract PDF to dictionary
-        result = pdf_to_json.extract_pdf_to_dict("sample.pdf")
+        result = pdf_2_json_extractor.extract_pdf_to_dict("sample.pdf")
 
         print(f"Document Title: {result['title']}")
         print(f"Number of Pages: {result['stats']['page_count']}")
@@ -40,12 +40,12 @@ def example_json_output():
 
     try:
         # Extract to JSON string
-        json_output = pdf_to_json.extract_pdf_to_json("sample.pdf")
+        json_output = pdf_2_json_extractor.extract_pdf_to_json("sample.pdf")
         print("JSON output (first 500 characters):")
         print(json_output[:500] + "...")
 
         # Save to file
-        output_file = pdf_to_json.extract_pdf_to_json("sample.pdf", "output.json")
+        output_file = pdf_2_json_extractor.extract_pdf_to_json("sample.pdf", "output.json")
         print(f"\nSaved to file: {output_file}")
 
     except PdfToJsonError as e:
@@ -55,7 +55,7 @@ def example_custom_config():
     """Example with custom configuration."""
     print("\n=== Custom Configuration ===")
 
-    from pdf_to_json import Config, PDFStructureExtractor
+    from pdf_2_json_extractor import Config, PDFStructureExtractor
 
     # Create custom configuration
     config = Config()
@@ -79,22 +79,22 @@ def example_error_handling():
     """Example of proper error handling."""
     print("\n=== Error Handling ===")
 
-    from pdf_to_json.exceptions import InvalidPDFError, PDFFileNotFoundError
+    from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError
 
     try:
-        _result = pdf_to_json.extract_pdf_to_dict("nonexistent.pdf")
+        _result = pdf_2_json_extractor.extract_pdf_to_dict("nonexistent.pdf")
     except PDFFileNotFoundError:
         print("[OK] Correctly caught: File not found")
     except InvalidPDFError:
         print("[OK] Correctly caught: Invalid PDF")
     except PdfToJsonError as e:
-        print(f"[OK] Correctly caught: pdf_to_json error - {e}")
+        print(f"[OK] Correctly caught: pdf_2_json_extractor error - {e}")
     except Exception as e:
         print(f"[FAIL] Unexpected error: {e}")
 
 if __name__ == "__main__":
-    print("pdf_to_json Examples")
-    print("====================")
+    print("pdf_2_json_extractor Examples")
+    print("=============================")
 
     # Run examples
     example_basic_extraction()
