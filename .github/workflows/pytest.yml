@@ -1,6 +1,4 @@
 name: Pytest
-permissions:
-  contents: read
 
 on:
   push:
