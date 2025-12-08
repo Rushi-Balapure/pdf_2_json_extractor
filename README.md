@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://python.org)
 [![PyPI Version](https://img.shields.io/pypi/v/pdf_2_json_extractor.svg)](https://pypi.org/project/pdf_2_json_extractor/)
-
+[![Coverage Status](https://coveralls.io/repos/github/Rushi-Balapure/pdf_2_json_extractor/badge.svg?branch=main)](https://coveralls.io/github/Rushi-Balapure/pdf_2_json_extractor?branch=main)
 A high-performance Python library for extracting structured content from PDF documents with layout-aware text extraction. pdf_2_json_extractor preserves document structure including headings (H1-H6) and body text, outputting clean JSON format.
 
 ## Features
