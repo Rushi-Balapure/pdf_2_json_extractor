@@ -29,7 +29,7 @@ class TextSpan:
     text: str
     font_info: FontInfo
     bbox: tuple
-    level: Optional[str] = None
+    level: str | None = None
 
 class PDFStructureExtractor:
     """
@@ -37,7 +37,7 @@ class PDFStructureExtractor:
     Supports multilingual text extraction and heading detection based on font analysis.
     """
 
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Config | None = None):
         """
         Initialize the PDF structure extractor.
 
@@ -48,7 +48,7 @@ class PDFStructureExtractor:
         self.font_size_histogram = defaultdict(int)
         self.heading_levels = {}
 
-    def analyze_font_sizes(self, doc: fitz.Document) -> Tuple[Dict[float, int], Dict[float, str]]:
+    def analyze_font_sizes(self, doc: fitz.Document) -> tuple[dict[float, int], dict[float, str]]:
         """Analyze font sizes across the document to determine heading levels."""
         font_histogram = defaultdict(int)
         total_chars = 0
@@ -94,7 +94,7 @@ class PDFStructureExtractor:
                 if not lines:
                     continue
                 for line in lines:
-                    text_parts: List[str] = []
+                    text_parts: list[str] = []
                     max_size = 0.0
                     top_y = None
                     bottom_y = None
@@ -121,14 +121,14 @@ class PDFStructureExtractor:
                         "bottom": bottom_y,
                     }
 
-    def _classify_level(self, line_font_size: float, heading_levels: Dict[float, str]) -> Optional[str]:
+    def _classify_level(self, line_font_size: float, heading_levels: dict[float, str]) -> str | None:
         """Return heading level like 'H1'..'H6' if font size matches, else None."""
         return heading_levels.get(round(line_font_size, 1))
 
-    def _group_paragraphs(self, lines: List[Dict[str, Any]], gap_multiplier: float = 0.8) -> List[List[Dict[str, Any]]]:
+    def _group_paragraphs(self, lines: list[dict[str, Any]], gap_multiplier: float = 0.8) -> list[list[dict[str, Any]]]:
         """Group consecutive lines into paragraphs based on vertical gaps."""
-        paragraphs: List[List[Dict[str, Any]]] = []
-        current: List[Dict[str, Any]] = []
+        paragraphs: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
 
         prev_bottom = None
         for ln in lines:
@@ -156,7 +156,7 @@ class PDFStructureExtractor:
 
         return paragraphs
 
-    def extract_text_with_structure(self, pdf_path: str) -> Dict[str, Any]:
+    def extract_text_with_structure(self, pdf_path: str) -> dict[str, Any]:
         """
         Extract text with hierarchical structure from PDF.
         Returns JSON format with title and outline.
@@ -191,14 +191,14 @@ class PDFStructureExtractor:
             title = self._extract_title(doc, heading_levels)
 
             # Extract structured content
-            sections: List[Dict[str, Any]] = []
-            current_section: Optional[Dict[str, Any]] = None
+            sections: list[dict[str, Any]] = []
+            current_section: dict[str, Any] | None = None
 
             # Collect all non-empty lines first with layout info
-            all_lines: List[Dict[str, Any]] = list(self._iter_lines(doc))
+            all_lines: list[dict[str, Any]] = list(self._iter_lines(doc))
 
             # Split by headings and group non-heading lines into paragraphs per section
-            buffer_non_heading: List[Dict[str, Any]] = []
+            buffer_non_heading: list[dict[str, Any]] = []
             for ln in all_lines:
                 level = self._classify_level(ln["font_size"], heading_levels)
                 if level:
@@ -255,7 +255,7 @@ class PDFStructureExtractor:
             logger.error(f"Error processing PDF: {str(e)}")
             raise PDFProcessingError(f"Failed to process PDF: {str(e)}")
 
-    def _extract_title(self, doc: fitz.Document, heading_levels: Dict[float, str]) -> str:
+    def _extract_title(self, doc: fitz.Document, heading_levels: dict[float, str]) -> str:
         """Extract document title from first page."""
         if len(doc) == 0:
             return "Untitled Document"

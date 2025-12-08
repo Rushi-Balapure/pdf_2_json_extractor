@@ -70,7 +70,7 @@ class TestCLI:
                     mock_stdout.write.assert_called()
 
                     # Verify that JSON was written to file
-                    with open(json_path, 'r', encoding='utf-8') as f:
+                    with open(json_path, encoding='utf-8') as f:
                         saved_result = json.load(f)
                     assert saved_result == mock_result
         finally:

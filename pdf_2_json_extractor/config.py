@@ -33,7 +33,7 @@ class Config:
     LOG_LEVEL = os.getenv('PDF_TO_JSON_LOG_LEVEL', 'INFO')
 
     @classmethod
-    def get_config(cls) -> Dict[str, Any]:
+    def get_config(cls) -> dict[str, Any]:
         """Return configuration as dictionary."""
         return {
             'max_pages_for_font_analysis': cls.MAX_PAGES_FOR_FONT_ANALYSIS,
