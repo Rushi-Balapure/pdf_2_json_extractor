@@ -24,10 +24,10 @@ class TestCLI:
         # This would normally be called with --help, but we're testing the argument parsing
         # The actual help test would require modifying sys.argv
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_json')
+    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
     def test_cli_success_stdout(self, mock_extract):
         """Test successful CLI execution with stdout output."""
-        mock_result = '{"title": "Test Document", "sections": []}'
+        mock_result = {"title": "Test Document", "sections": []}
         mock_extract.return_value = mock_result
 
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
@@ -70,7 +70,7 @@ class TestCLI:
                     mock_stdout.write.assert_called()
 
                     # Verify that JSON was written to file
-                    with open(json_path, 'r', encoding='utf-8') as f:
+                    with open(json_path, encoding='utf-8') as f:
                         saved_result = json.load(f)
                     assert saved_result == mock_result
         finally:
@@ -126,10 +126,10 @@ class TestCLI:
         finally:
             os.unlink(tmp_path)
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_json')
+    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
     def test_cli_pretty_output(self, mock_extract):
         """Test CLI pretty output option."""
-        mock_result = '{"title": "Test", "sections": []}'
+        mock_result = {"title": "Test", "sections": []}
         mock_extract.return_value = mock_result
 
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:

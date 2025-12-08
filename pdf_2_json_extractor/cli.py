@@ -61,31 +61,21 @@ Examples:
         sys.exit(1)
 
     try:
-        # Extract PDF content
+        # Extract PDF content once
+        result = extract_pdf_to_dict(args.pdf_path)
+
+        # Format JSON based on arguments
+        if args.compact:
+            json_str = json.dumps(result, ensure_ascii = False, separators = (',', ':'))
+        else:
+            json_str = json.dumps(result, ensure_ascii = False, indent = 2)
+
+        # Save to file or stdout
         if args.output:
-            # Save to file
-            result = extract_pdf_to_dict(args.pdf_path)
-
-            # Format JSON
-            if args.compact:
-                json_str = json.dumps(result, ensure_ascii = False, separators = (',', ':'))
-            else:
-                json_str = json.dumps(result, ensure_ascii = False, indent = 2)
-
             with open(args.output, 'w', encoding = 'utf-8') as f:
                 f.write(json_str)
-
             print(f"Successfully extracted PDF content to '{args.output}'")
         else:
-            # Output to stdout
-            if args.compact:
-                json_str = extract_pdf_to_json(args.pdf_path)
-                # Remove indentation for compact output
-                result = extract_pdf_to_dict(args.pdf_path)
-                json_str = json.dumps(result, ensure_ascii = False, separators = (',', ':'))
-            else:
-                json_str = extract_pdf_to_json(args.pdf_path)
-
             print(json_str)
 
     except PdfToJsonError as e:

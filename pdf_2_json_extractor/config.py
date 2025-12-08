@@ -18,22 +18,22 @@ class Config:
     # Text processing settings
     MIN_TEXT_LENGTH = int(os.getenv('PDF_TO_JSON_MIN_TEXT_LENGTH', '3'))
     MAX_HEADING_LEVELS = int(os.getenv('PDF_TO_JSON_MAX_HEADING_LEVELS', '6'))
-    COMBINE_CONSECUTIVE_TEXT = bool(os.getenv('PDF_TO_JSON_COMBINE_CONSECUTIVE_TEXT', 'True').lower() == 'true')
+    COMBINE_CONSECUTIVE_TEXT = os.getenv('PDF_TO_JSON_COMBINE_CONSECUTIVE_TEXT', 'True').lower() in ('true', '1', 'yes')
 
     # Language support settings
-    MULTILINGUAL_SUPPORT = bool(os.getenv('PDF_TO_JSON_MULTILINGUAL_SUPPORT', 'True').lower() == 'true')
+    MULTILINGUAL_SUPPORT = os.getenv('PDF_TO_JSON_MULTILINGUAL_SUPPORT', 'True').lower() in ('true', '1', 'yes')
     DEFAULT_ENCODING = os.getenv('PDF_TO_JSON_DEFAULT_ENCODING', 'utf-8')
 
     # Memory optimization
-    PROCESS_PAGES_IN_CHUNKS = bool(os.getenv('PDF_TO_JSON_PROCESS_PAGES_IN_CHUNKS', 'False').lower() == 'true')
+    PROCESS_PAGES_IN_CHUNKS = os.getenv('PDF_TO_JSON_PROCESS_PAGES_IN_CHUNKS', 'False').lower() in ('true', '1', 'yes')
     CHUNK_SIZE = int(os.getenv('PDF_TO_JSON_CHUNK_SIZE', '10'))
 
     # Debug settings
-    DEBUG_MODE = bool(os.getenv('PDF_TO_JSON_DEBUG_MODE', 'False').lower() == 'true')
+    DEBUG_MODE = os.getenv('PDF_TO_JSON_DEBUG_MODE', 'False').lower() in ('true', '1', 'yes')
     LOG_LEVEL = os.getenv('PDF_TO_JSON_LOG_LEVEL', 'INFO')
 
     @classmethod
-    def get_config(cls) -> Dict[str, Any]:
+    def get_config(cls) -> dict[str, Any]:
         """Return configuration as dictionary."""
         return {
             'max_pages_for_font_analysis': cls.MAX_PAGES_FOR_FONT_ANALYSIS,

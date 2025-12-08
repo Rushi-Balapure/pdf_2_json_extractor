@@ -1,5 +1,7 @@
 pip-tools
 ruff
-pymupdf
+PyMuPDF==1.26.6
 pytest
 pylint
+pytest-xdist
+pytest-cov
