@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from pdf_2_json_extractor.config import Config
-from pdf_2_json_extractor.exceptions import PDFFileNotFoundError, PDFProcessingError
+from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
 from pdf_2_json_extractor.extractor import PDFStructureExtractor
 
 
@@ -199,6 +199,246 @@ class TestPDFStructureExtractor:
 
         title = self.extractor._extract_title(mock_doc, {})
         assert title == "Untitled Document"
+
+    def test_analyze_font_sizes_with_empty_lines(self):
+        """Test font size analysis with blocks that have no lines."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=1)
+
+        mock_page = Mock()
+        mock_page.get_text.return_value = {
+            "blocks": [
+                {"lines": None},  # Block with no lines
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {"text": "Valid text", "size": 12.0}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_doc.__getitem__ = Mock(return_value=mock_page)
+
+        font_histogram, heading_levels = self.extractor.analyze_font_sizes(mock_doc)
+        assert 12.0 in font_histogram
+
+    def test_analyze_font_sizes_with_empty_text(self):
+        """Test font size analysis with empty or whitespace-only text."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=1)
+
+        mock_page = Mock()
+        mock_page.get_text.return_value = {
+            "blocks": [
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {"text": "", "size": 12.0},  # Empty text
+                                {"text": "   ", "size": 14.0},  # Whitespace only
+                                {"text": "Valid text", "size": 16.0}  # Valid text
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_doc.__getitem__ = Mock(return_value=mock_page)
+
+        font_histogram, heading_levels = self.extractor.analyze_font_sizes(mock_doc)
+        assert 16.0 in font_histogram
+        assert 12.0 not in font_histogram  # Empty text should be skipped
+        assert 14.0 not in font_histogram  # Whitespace-only text should be skipped
+
+    def test_iter_lines_with_empty_lines(self):
+        """Test _iter_lines with blocks that have no lines."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=1)
+
+        mock_page = Mock()
+        mock_page.get_text.return_value = {
+            "blocks": [
+                {"lines": None},  # Block with no lines
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {"text": "Valid text", "size": 12.0, "bbox": [0, 0, 100, 20]}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_doc.__getitem__ = Mock(return_value=mock_page)
+
+        lines = list(self.extractor._iter_lines(mock_doc))
+        assert len(lines) == 1
+        assert lines[0]["text"] == "Valid text"
+
+    def test_iter_lines_with_empty_text(self):
+        """Test _iter_lines with empty or whitespace-only text."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=1)
+
+        mock_page = Mock()
+        mock_page.get_text.return_value = {
+            "blocks": [
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {"text": "", "size": 12.0, "bbox": [0, 0, 100, 20]},  # Empty text
+                                {"text": "   ", "size": 14.0, "bbox": [0, 20, 100, 40]},  # Whitespace only
+                                {"text": "Valid text", "size": 16.0, "bbox": [0, 40, 100, 60]}  # Valid text
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_doc.__getitem__ = Mock(return_value=mock_page)
+
+        lines = list(self.extractor._iter_lines(mock_doc))
+        assert len(lines) == 1
+        assert lines[0]["text"] == "Valid text"
+
+    def test_iter_lines_with_all_empty_spans(self):
+        """Test _iter_lines when all spans are empty (should skip the line)."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=1)
+
+        mock_page = Mock()
+        mock_page.get_text.return_value = {
+            "blocks": [
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {"text": "", "size": 12.0, "bbox": [0, 0, 100, 20]},
+                                {"text": "   ", "size": 14.0, "bbox": [0, 20, 100, 40]}
+                            ]
+                        },
+                        {
+                            "spans": [
+                                {"text": "Valid text", "size": 16.0, "bbox": [0, 40, 100, 60]}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_doc.__getitem__ = Mock(return_value=mock_page)
+
+        lines = list(self.extractor._iter_lines(mock_doc))
+        assert len(lines) == 1
+        assert lines[0]["text"] == "Valid text"
+
+    @patch('pdf_2_json_extractor.extractor.fitz.open')
+    def test_extract_text_with_structure_empty_document(self, mock_fitz_open):
+        """Test error handling for empty PDF document."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=0)
+        mock_fitz_open.return_value = mock_doc
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            tmp.write(b"empty pdf content")
+            tmp_path = tmp.name
+
+        try:
+            # InvalidPDFError is caught by generic exception handler and re-raised as PDFProcessingError
+            with pytest.raises(PDFProcessingError, match="Failed to process PDF"):
+                self.extractor.extract_text_with_structure(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+    @patch('pdf_2_json_extractor.extractor.fitz.open')
+    def test_extract_text_with_structure_file_data_error(self, mock_fitz_open):
+        """Test error handling for fitz.FileDataError."""
+        import pymupdf as fitz
+        mock_fitz_open.side_effect = fitz.FileDataError("Corrupted PDF")
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            tmp.write(b"corrupted pdf content")
+            tmp_path = tmp.name
+
+        try:
+            with pytest.raises(InvalidPDFError, match="Invalid or corrupted PDF file"):
+                self.extractor.extract_text_with_structure(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+    @patch('pdf_2_json_extractor.extractor.fitz.open')
+    def test_extract_text_with_structure_with_buffered_content(self, mock_fitz_open):
+        """Test extraction with buffered content before heading."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=1)
+
+        mock_page = Mock()
+        mock_page.get_text.return_value = {
+            "blocks": [
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {"text": "Body text before heading", "size": 12.0, "bbox": [0, 0, 200, 20]}
+                            ]
+                        },
+                        {
+                            "spans": [
+                                {"text": "Heading", "size": 18.0, "bbox": [0, 30, 200, 50]}
+                            ]
+                        },
+                        {
+                            "spans": [
+                                {"text": "Body text after heading", "size": 12.0, "bbox": [0, 60, 200, 80]}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_doc.__getitem__ = Mock(return_value=mock_page)
+        mock_fitz_open.return_value = mock_doc
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            tmp.write(b"valid pdf content")
+            tmp_path = tmp.name
+
+        try:
+            result = self.extractor.extract_text_with_structure(tmp_path)
+            assert len(result["sections"]) > 0
+            # Should have sections with buffered content
+        finally:
+            os.unlink(tmp_path)
+
+    def test_extract_title_with_block_without_lines(self):
+        """Test title extraction when block doesn't have 'lines' key."""
+        mock_doc = Mock()
+        mock_doc.__len__ = Mock(return_value=1)
+
+        mock_page = Mock()
+        mock_page.get_text.return_value = {
+            "blocks": [
+                {"no_lines": True},  # Block without "lines" key
+                {
+                    "lines": [
+                        {
+                            "spans": [
+                                {"text": "Valid Title", "size": 18.0}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        mock_doc.__getitem__ = Mock(return_value=mock_page)
+
+        title = self.extractor._extract_title(mock_doc, {})
+        assert title == "Valid Title"
 
 
 class TestConfig:

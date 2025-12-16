@@ -106,6 +106,25 @@ class TestCLI:
             os.unlink(tmp_path)
 
     @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
+    def test_cli_general_error(self, mock_extract):
+        """Test CLI error handling for genera; errors."""
+        mock_extract.side_effect = Exception("Unexpected error")
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            tmp.write(b"txt content")
+            tmp_path = tmp.name
+
+        try:
+            with patch('sys.argv', ['pdf_2_json_extractor', tmp_path]):
+                with patch('sys.stderr') as mock_stderr:
+                    with pytest.raises(SystemExit):
+                        main()
+                    # Verify error message was written to stderr
+                    mock_stderr.write.assert_called()
+        finally:
+            os.unlink(tmp_path)
+
+    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
     @patch('pdf_2_json_extractor.cli.extract_pdf_to_json')
     def test_cli_compact_output(self, mock_extract_json, mock_extract_dict):
         """Test CLI compact output option."""
