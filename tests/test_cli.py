@@ -113,7 +113,7 @@ class TestCLI:
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
             tmp.write(b"txt content")
             tmp_path = tmp.name
-        
+
         try:
             with patch('sys.argv', ['pdf_2_json_extractor', tmp_path]):
                 with patch('sys.stderr') as mock_stderr:
