@@ -155,7 +155,7 @@ class PDFStructureExtractor:
             paragraphs.append(current)
 
         return paragraphs
- 
+
     def extract_text_with_structure(self, pdf_path: str) -> dict[str, Any]:
         """
         Extract text with hierarchical structure from PDF.

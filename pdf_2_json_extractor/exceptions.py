@@ -4,6 +4,7 @@ Custom exceptions for pdf_2_json_extractor library.
 
 from typing import Any, Optional
 
+
 class PdfToJsonError(Exception):
     """Base exception for pdf_2_json_extractor library."""
     def __init__(self, message: str, details: Optional[dict[str, Any]] = None):
