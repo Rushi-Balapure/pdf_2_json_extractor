@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdf_2_json_extractor"
-version = "1.0.0"
+version = "1.1.0"
 description = "A high-performance PDF to JSON extraction library with layout-aware text extraction"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -86,7 +86,7 @@ addopts = [
 ]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.12.3"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

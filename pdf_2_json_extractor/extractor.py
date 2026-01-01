@@ -155,7 +155,7 @@ class PDFStructureExtractor:
             paragraphs.append(current)
 
         return paragraphs
-
+ 
     def extract_text_with_structure(self, pdf_path: str) -> dict[str, Any]:
         """
         Extract text with hierarchical structure from PDF.
@@ -175,14 +175,14 @@ class PDFStructureExtractor:
         start_time = time.time()
 
         if not os.path.exists(pdf_path):
-            raise PDFFileNotFoundError(f"PDF file not found: {pdf_path}")
+            raise PDFFileNotFoundError(path  = pdf_path)
 
         try:
             doc = fitz.open(pdf_path)
 
             # Validate that document has content
             if len(doc) == 0:
-                raise InvalidPDFError("PDF document is empty")
+                raise InvalidPDFError("PDF document is empty", path = pdf_path)
 
             # Analyze font sizes for heading detection
             font_histogram, heading_levels = self.analyze_font_sizes(doc)
@@ -250,10 +250,10 @@ class PDFStructureExtractor:
             }
 
         except fitz.FileDataError as e:
-            raise InvalidPDFError(f"Invalid or corrupted PDF file: {str(e)}")
+            raise InvalidPDFError(f"Invalid or corrupted PDF file: {str(e)}", path = pdf_path, details = {"error_type": type(e).__name__})
         except Exception as e:
             logger.error(f"Error processing PDF: {str(e)}")
-            raise PDFProcessingError(f"Failed to process PDF: {str(e)}")
+            raise PDFProcessingError(f"Failed to process PDF: {str(e)}", original_exception = e, details = {"path": pdf_path})
 
     def _extract_title(self, doc: fitz.Document, heading_levels: dict[float, str]) -> str:
         """Extract document title from first page."""
