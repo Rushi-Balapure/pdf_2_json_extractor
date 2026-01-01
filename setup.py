@@ -31,7 +31,7 @@ def read_requirements():
 
 setup(
     name="pdf_2_json_extractor",
-    version="1.0.0",
+    version="1.1.0",
     author="Rushi Balapure",
     author_email="rishibalapure12@gmail.com",
     description='''
