@@ -15,11 +15,21 @@ import pytest
 def run_cli(*args: str) -> subprocess.CompletedProcess:
     """
     Run the CLI with the given arguments.
-    
     Never raises on non-zero exit. Caller should check returncode and stderr.
     """
     cmd = [sys.executable, "-m", "pdf_2_json_extractor.cli", *args]
-    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        check=False,
+        encoding="utf-8",
+        errors="replace",
+    )
+    # Ensure stdout/stderr are never None (defensive for weird Windows/CI edge cases)
+    stdout = result.stdout if result.stdout is not None else ""
+    stderr = result.stderr if result.stderr is not None else ""
+    return subprocess.CompletedProcess(result.args, result.returncode, stdout, stderr)
 
 
 class TestCLIBasicUsage:
@@ -31,6 +41,7 @@ class TestCLIBasicUsage:
 
         # Show stderr on failure for debugging
         assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}"
+        assert result.stdout, f"CLI returned empty stdout, stderr: {result.stderr}"
 
         # Should be valid JSON
         output = json.loads(result.stdout)
@@ -56,6 +67,7 @@ class TestCLIBasicUsage:
         result = run_cli(str(real_pdf_path), "--compact")
 
         assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}"
+        assert result.stdout, f"CLI returned empty stdout, stderr: {result.stderr}"
 
         # Compact JSON shouldn't have newlines in the main output
         # (there might be newlines in content, but the JSON structure itself is flat)
