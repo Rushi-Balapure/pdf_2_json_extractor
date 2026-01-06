@@ -211,6 +211,18 @@ class TestConfig:
         assert "max_pages_for_font_analysis" in config_dict
         assert config_dict["max_pages_for_font_analysis"] == 10
 
+    def test_instances_are_independent(self):
+        """Modifying one Config instance should not affect others."""
+        config1 = Config()
+        config2 = Config()
+
+        # Modify config1
+        config1.MAX_PAGES_FOR_FONT_ANALYSIS = 99
+
+        # config2 should be unchanged
+        assert config2.MAX_PAGES_FOR_FONT_ANALYSIS == 10
+        assert config1.MAX_PAGES_FOR_FONT_ANALYSIS == 99
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
