@@ -1,169 +1,110 @@
 """
-Unit tests for pdf_2_json_extractor CLI.
+End-to-end tests for pdf_2_json_extractor CLI.
+
+Tests the actual CLI behavior with real PDFs and real arguments.
 """
 
 import json
-import os
-import tempfile
-from unittest.mock import patch
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
-from pdf_2_json_extractor.cli import main
-from pdf_2_json_extractor.exceptions import PdfToJsonError
+
+def run_cli(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+    """Run the CLI with the given arguments."""
+    cmd = [sys.executable, "-m", "pdf_2_json_extractor.cli", *args]
+    return subprocess.run(cmd, capture_output=True, text=True, check=check)
 
 
-class TestCLI:
-    """Test cases for pdf_2_json_extractor CLI."""
+class TestCLIBasicUsage:
+    """Test basic CLI functionality."""
 
-    def test_cli_help(self, capsys):
-        """Test CLI help output."""
-        with pytest.raises(SystemExit):
-            main()
+    def test_extracts_to_stdout(self, real_pdf_path: Path):
+        """Running with just a PDF path should output JSON to stdout."""
+        result = run_cli(str(real_pdf_path))
 
-        # This would normally be called with --help, but we're testing the argument parsing
-        # The actual help test would require modifying sys.argv
+        assert result.returncode == 0
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
-    def test_cli_success_stdout(self, mock_extract):
-        """Test successful CLI execution with stdout output."""
-        mock_result = {"title": "Test Document", "sections": []}
-        mock_extract.return_value = mock_result
+        # Should be valid JSON
+        output = json.loads(result.stdout)
+        assert "title" in output
+        assert "sections" in output
+        assert "stats" in output
 
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            tmp.write(b"pdf content")
-            tmp_path = tmp.name
+    def test_extracts_to_file(self, real_pdf_path: Path, temp_json_output_path: Path):
+        """Using -o should save output to file."""
+        result = run_cli(str(real_pdf_path), "-o", str(temp_json_output_path))
 
-        try:
-            # Mock sys.argv to simulate command line arguments
-            with patch('sys.argv', ['pdf_2_json_extractor', tmp_path]):
-                with patch('sys.stdout') as mock_stdout:
-                    main()
-                    # Verify that JSON was written to stdout
-                    mock_stdout.write.assert_called()
-        finally:
-            os.unlink(tmp_path)
+        assert result.returncode == 0
+        assert temp_json_output_path.exists()
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
-    def test_cli_success_file_output(self, mock_extract):
-        """Test successful CLI execution with file output."""
-        mock_result = {
-            "title": "Test Document",
-            "sections": [{"level": "H1", "title": "Introduction", "paragraphs": ["Content"]}],
-            "stats": {"page_count": 1, "processing_time": 1.0}
-        }
-        mock_extract.return_value = mock_result
+        with open(temp_json_output_path, encoding="utf-8") as f:
+            saved = json.load(f)
 
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_pdf:
-            tmp_pdf.write(b"pdf content")
-            pdf_path = tmp_pdf.name
+        assert "title" in saved
+        assert "sections" in saved
 
-        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tmp_json:
-            json_path = tmp_json.name
+    def test_compact_output(self, real_pdf_path: Path):
+        """--compact should produce minified JSON."""
+        result = run_cli(str(real_pdf_path), "--compact")
 
-        try:
-            # Mock sys.argv to simulate command line arguments
-            with patch('sys.argv', ['pdf_2_json_extractor', pdf_path, '-o', json_path]):
-                with patch('sys.stdout') as mock_stdout:
-                    main()
-                    # Verify that success message was printed
-                    mock_stdout.write.assert_called()
+        assert result.returncode == 0
 
-                    # Verify that JSON was written to file
-                    with open(json_path, encoding='utf-8') as f:
-                        saved_result = json.load(f)
-                    assert saved_result == mock_result
-        finally:
-            os.unlink(pdf_path)
-            os.unlink(json_path)
+        # Compact JSON shouldn't have newlines in the main output
+        # (there might be newlines in content, but the JSON structure itself is flat)
+        output = result.stdout.strip()
+        parsed = json.loads(output)
 
-    def test_cli_file_not_found(self):
-        """Test CLI error handling for non-existent file."""
-        with patch('sys.argv', ['pdf_2_json_extractor', 'nonexistent.pdf']):
-            with patch('sys.stderr') as mock_stderr:
-                with pytest.raises(SystemExit):
-                    main()
-                # Verify error message was written to stderr
-                mock_stderr.write.assert_called()
+        # Verify it parsed correctly
+        assert "title" in parsed
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
-    def test_cli_processing_error(self, mock_extract):
-        """Test CLI error handling for processing errors."""
-        mock_extract.side_effect = PdfToJsonError("Processing failed")
+        # Re-encode compact and verify it matches (roughly)
+        compact_encoded = json.dumps(parsed, separators=(",", ":"), ensure_ascii=False)
+        # The output should be close to compact form
+        assert len(output) <= len(compact_encoded) + 100  # Some tolerance
 
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            tmp.write(b"pdf content")
-            tmp_path = tmp.name
 
-        try:
-            with patch('sys.argv', ['pdf_2_json_extractor', tmp_path]):
-                with patch('sys.stderr') as mock_stderr:
-                    with pytest.raises(SystemExit):
-                        main()
-                    # Verify error message was written to stderr
-                    mock_stderr.write.assert_called()
-        finally:
-            os.unlink(tmp_path)
+class TestCLIErrorHandling:
+    """Test CLI error cases."""
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
-    def test_cli_general_error(self, mock_extract):
-        """Test CLI error handling for genera; errors."""
-        mock_extract.side_effect = Exception("Unexpected error")
+    def test_file_not_found(self, nonexistent_pdf_path: Path):
+        """Should exit with error for missing file."""
+        result = run_cli(str(nonexistent_pdf_path), check=False)
 
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            tmp.write(b"txt content")
-            tmp_path = tmp.name
+        assert result.returncode != 0
+        assert "not found" in result.stderr.lower() or "error" in result.stderr.lower()
 
-        try:
-            with patch('sys.argv', ['pdf_2_json_extractor', tmp_path]):
-                with patch('sys.stderr') as mock_stderr:
-                    with pytest.raises(SystemExit):
-                        main()
-                    # Verify error message was written to stderr
-                    mock_stderr.write.assert_called()
-        finally:
-            os.unlink(tmp_path)
+    def test_no_arguments(self):
+        """Should exit with error when no arguments provided."""
+        result = run_cli(check=False)
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_json')
-    def test_cli_compact_output(self, mock_extract_json, mock_extract_dict):
-        """Test CLI compact output option."""
-        mock_result = {"title": "Test", "sections": []}
-        mock_extract_dict.return_value = mock_result
-        mock_extract_json.return_value = '{"title": "Test", "sections": []}'
+        assert result.returncode != 0
 
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            tmp.write(b"pdf content")
-            tmp_path = tmp.name
 
-        try:
-            with patch('sys.argv', ['pdf_2_json_extractor', tmp_path, '--compact']):
-                with patch('sys.stdout') as mock_stdout:
-                    main()
-                    # Verify that JSON was written to stdout
-                    mock_stdout.write.assert_called()
-        finally:
-            os.unlink(tmp_path)
+class TestCLIVersion:
+    """Test version flag."""
 
-    @patch('pdf_2_json_extractor.cli.extract_pdf_to_dict')
-    def test_cli_pretty_output(self, mock_extract):
-        """Test CLI pretty output option."""
-        mock_result = {"title": "Test", "sections": []}
-        mock_extract.return_value = mock_result
+    def test_version_flag(self):
+        """--version should print version and exit."""
+        result = run_cli("--version", check=False)
 
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            tmp.write(b"pdf content")
-            tmp_path = tmp.name
+        # argparse exits with 0 for --version
+        assert result.returncode == 0
+        assert "pdf_2_json_extractor" in result.stdout.lower() or "1." in result.stdout
 
-        try:
-            with patch('sys.argv', ['pdf_2_json_extractor', tmp_path, '--pretty']):
-                with patch('sys.stdout') as mock_stdout:
-                    main()
-                    # Verify that JSON was written to stdout
-                    mock_stdout.write.assert_called()
-        finally:
-            os.unlink(tmp_path)
+
+class TestCLIHelp:
+    """Test help output."""
+
+    def test_help_flag(self):
+        """--help should print usage and exit."""
+        result = run_cli("--help", check=False)
+
+        assert result.returncode == 0
+        assert "usage" in result.stdout.lower() or "pdf" in result.stdout.lower()
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main([__file__, "-v"])

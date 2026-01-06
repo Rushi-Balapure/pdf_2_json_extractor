@@ -3,90 +3,68 @@ Pytest configuration and fixtures for pdf_2_json_extractor tests.
 """
 
 import os
-import tempfile
-from unittest.mock import Mock
+from pathlib import Path
 
 import pytest
 
 
-@pytest.fixture
-def sample_pdf():
-    """Create a temporary PDF file for testing."""
-    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-        # Write minimal PDF content (this is not a real PDF, just for testing)
-        tmp.write(b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n")
-        tmp_path = tmp.name
-
-    yield tmp_path
-
-    # Cleanup
-    if os.path.exists(tmp_path):
-        os.unlink(tmp_path)
+def get_project_root() -> Path:
+    """Get the project root directory."""
+    return Path(__file__).parent.parent
 
 
 @pytest.fixture
-def sample_json_output():
-    """Sample JSON output for testing."""
-    return {
-        "title": "Test Document",
-        "sections": [
-            {
-                "level": "H1",
-                "title": "Introduction",
-                "paragraphs": ["This is the introduction paragraph."]
-            },
-            {
-                "level": "H2",
-                "title": "Overview",
-                "paragraphs": ["This is the overview section."]
-            },
-            {
-                "level": "content",
-                "title": None,
-                "paragraphs": ["This is regular content."]
-            }
-        ],
-        "font_histogram": {
-            "12.0": 100,
-            "14.0": 50,
-            "16.0": 25
-        },
-        "heading_levels": {
-            "16.0": "H1",
-            "14.0": "H2"
-        },
-        "stats": {
-            "page_count": 1,
-            "processing_time": 1.5,
-            "num_sections": 3,
-            "num_headings": 2,
-            "num_paragraphs": 3
-        }
-    }
+def project_root() -> Path:
+    """Return the project root directory."""
+    return get_project_root()
 
 
 @pytest.fixture
-def mock_document():
-    """Mock PyMuPDF document for testing."""
-    mock_doc = Mock()
-    mock_doc.__len__ = Mock(return_value=2)
+def papers_dir(project_root: Path) -> Path:
+    """Return the papers directory containing real PDFs for testing."""
+    return project_root / "papers"
 
-    # Mock page
-    mock_page = Mock()
-    mock_page.get_text.return_value = {
-        "blocks": [
-            {
-                "lines": [
-                    {
-                        "spans": [
-                            {"text": "Title", "size": 16.0, "bbox": [0, 0, 100, 20]},
-                            {"text": "Body text", "size": 12.0, "bbox": [0, 25, 100, 35]}
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
 
-    mock_doc.__getitem__ = Mock(return_value=mock_page)
-    return mock_doc
+@pytest.fixture
+def real_pdf_path(papers_dir: Path) -> Path:
+    """
+    Return the path to a real PDF file for e2e testing.
+    
+    This is the good stuff. An actual PDF, not some fake mock bullshit.
+    """
+    pdf_path = papers_dir / "1751-0473-7-7.pdf"
+    if not pdf_path.exists():
+        pytest.skip(f"Test PDF not found at {pdf_path}")
+    return pdf_path
+
+
+@pytest.fixture
+def nonexistent_pdf_path(tmp_path: Path) -> Path:
+    """Return a path to a PDF file that definitely does not exist."""
+    return tmp_path / "this_file_does_not_exist.pdf"
+
+
+@pytest.fixture
+def invalid_pdf_path(tmp_path: Path) -> Path:
+    """
+    Create a file with .pdf extension but garbage content.
+    
+    For testing that the extractor properly rejects invalid PDFs.
+    """
+    invalid_pdf = tmp_path / "not_a_real_pdf.pdf"
+    invalid_pdf.write_bytes(b"This is definitely not a PDF file, just random text.")
+    return invalid_pdf
+
+
+@pytest.fixture
+def empty_file_pdf_path(tmp_path: Path) -> Path:
+    """Create an empty file with .pdf extension."""
+    empty_pdf = tmp_path / "empty.pdf"
+    empty_pdf.write_bytes(b"")
+    return empty_pdf
+
+
+@pytest.fixture
+def temp_json_output_path(tmp_path: Path) -> Path:
+    """Return a temporary path for JSON output."""
+    return tmp_path / "output.json"
