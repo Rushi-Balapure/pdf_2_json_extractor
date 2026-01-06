@@ -29,7 +29,6 @@ def papers_dir(project_root: Path) -> Path:
 def real_pdf_path(papers_dir: Path) -> Path:
     """
     Return the path to a real PDF file for e2e testing.
-    
     This is the good stuff. An actual PDF, not some fake mock bullshit.
     """
     pdf_path = papers_dir / "1751-0473-7-7.pdf"
@@ -48,7 +47,6 @@ def nonexistent_pdf_path(tmp_path: Path) -> Path:
 def invalid_pdf_path(tmp_path: Path) -> Path:
     """
     Create a file with .pdf extension but garbage content.
-    
     For testing that the extractor properly rejects invalid PDFs.
     """
     invalid_pdf = tmp_path / "not_a_real_pdf.pdf"

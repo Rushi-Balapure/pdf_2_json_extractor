@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from pdf_2_json_extractor import extract_pdf_to_dict, extract_pdf_to_json
-from pdf_2_json_extractor.exceptions import PDFFileNotFoundError, InvalidPDFError
+from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError
 
 
 class TestExtractPdfToDict:
