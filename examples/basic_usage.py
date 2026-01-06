@@ -61,7 +61,6 @@ def example_custom_config():
     config = Config()
     config.MAX_PAGES_FOR_FONT_ANALYSIS = 5
     config.MIN_HEADING_FREQUENCY = 0.002
-    config.DEBUG_MODE = True
 
     # Use with custom config
     extractor = PDFStructureExtractor(config)
