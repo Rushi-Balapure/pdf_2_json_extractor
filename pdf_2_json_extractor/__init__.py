@@ -20,7 +20,7 @@ __email__ = "rishibalapure12@gmail.com"
 import json
 
 from .config import Config
-from .exceptions import InvalidPDFError, PDFProcessingError, PdfToJsonError
+from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError, PdfToJsonError
 from .extractor import PDFStructureExtractor
 
 __all__ = [
@@ -28,9 +28,10 @@ __all__ = [
     "Config",
     "PdfToJsonError",
     "PDFProcessingError",
+    "PDFFileNotFoundError",
     "InvalidPDFError",
     "extract_pdf_to_json",
-    "extract_pdf_to_dict"
+    "extract_pdf_to_dict",
 ]
 
 def extract_pdf_to_json(pdf_path: str, output_path: str = None) -> str:
