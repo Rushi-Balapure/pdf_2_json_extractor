@@ -100,8 +100,7 @@ def example_custom_extraction():
     # Create custom configuration for academic papers
     config = Config()
     config.MAX_PAGES_FOR_FONT_ANALYSIS = 3  # Analyze fewer pages for faster processing
-    config.MIN_HEADING_FREQUENCY = 0.005     # More strict heading detection
-    config.DEBUG_MODE = True                 # Enable debug logging
+    config.MIN_HEADING_FREQUENCY = 0.005    # More strict heading detection
 
     extractor = PDFStructureExtractor(config)
 
