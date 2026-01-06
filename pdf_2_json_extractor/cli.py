@@ -11,8 +11,20 @@ from . import __version__, extract_pdf_to_dict
 from .exceptions import PdfToJsonError
 
 
+def _configure_stdout_encoding() -> None:
+    """Ensure stdout uses UTF-8 encoding, especially on Windows."""
+    try:
+        if hasattr(sys.stdout, "reconfigure") and sys.stdout.encoding.lower() != "utf-8":
+            sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        # Some environments don't support reconfigure (e.g., certain CI pipes)
+        pass
+
+
 def main() -> None:
     """Main CLI entry point."""
+    _configure_stdout_encoding()
+
     parser = argparse.ArgumentParser(
         description="Extract structured content from PDF files and output as JSON",
         formatter_class=argparse.RawDescriptionHelpFormatter,

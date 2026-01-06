@@ -12,10 +12,14 @@ from pathlib import Path
 import pytest
 
 
-def run_cli(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-    """Run the CLI with the given arguments."""
+def run_cli(*args: str) -> subprocess.CompletedProcess:
+    """
+    Run the CLI with the given arguments.
+    
+    Never raises on non-zero exit. Caller should check returncode and stderr.
+    """
     cmd = [sys.executable, "-m", "pdf_2_json_extractor.cli", *args]
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
 class TestCLIBasicUsage:
@@ -25,7 +29,8 @@ class TestCLIBasicUsage:
         """Running with just a PDF path should output JSON to stdout."""
         result = run_cli(str(real_pdf_path))
 
-        assert result.returncode == 0
+        # Show stderr on failure for debugging
+        assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}"
 
         # Should be valid JSON
         output = json.loads(result.stdout)
@@ -37,7 +42,7 @@ class TestCLIBasicUsage:
         """Using -o should save output to file."""
         result = run_cli(str(real_pdf_path), "-o", str(temp_json_output_path))
 
-        assert result.returncode == 0
+        assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}"
         assert temp_json_output_path.exists()
 
         with open(temp_json_output_path, encoding="utf-8") as f:
@@ -50,7 +55,7 @@ class TestCLIBasicUsage:
         """--compact should produce minified JSON."""
         result = run_cli(str(real_pdf_path), "--compact")
 
-        assert result.returncode == 0
+        assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}"
 
         # Compact JSON shouldn't have newlines in the main output
         # (there might be newlines in content, but the JSON structure itself is flat)
@@ -71,14 +76,14 @@ class TestCLIErrorHandling:
 
     def test_file_not_found(self, nonexistent_pdf_path: Path):
         """Should exit with error for missing file."""
-        result = run_cli(str(nonexistent_pdf_path), check=False)
+        result = run_cli(str(nonexistent_pdf_path))
 
         assert result.returncode != 0
         assert "not found" in result.stderr.lower() or "error" in result.stderr.lower()
 
     def test_no_arguments(self):
         """Should exit with error when no arguments provided."""
-        result = run_cli(check=False)
+        result = run_cli()
 
         assert result.returncode != 0
 
@@ -88,7 +93,7 @@ class TestCLIVersion:
 
     def test_version_flag(self):
         """--version should print version and exit."""
-        result = run_cli("--version", check=False)
+        result = run_cli("--version")
 
         # argparse exits with 0 for --version
         assert result.returncode == 0
@@ -100,7 +105,7 @@ class TestCLIHelp:
 
     def test_help_flag(self):
         """--help should print usage and exit."""
-        result = run_cli("--help", check=False)
+        result = run_cli("--help")
 
         assert result.returncode == 0
         assert "usage" in result.stdout.lower() or "pdf" in result.stdout.lower()
