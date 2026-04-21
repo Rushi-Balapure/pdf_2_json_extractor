@@ -70,6 +70,19 @@ class TestExtractTextWithStructure:
             extractor.extract_text_with_structure(str(empty_file_pdf_path))
 
 
+class TestOCRFallback:
+    """Test OCR fallback behavior for scanned PDFs."""
+
+    def test_uses_ocr_for_scanned_pdf(self, scanned_pdf_path: Path):
+        """Scanned image-only PDFs should still produce extracted content."""
+        extractor = PDFStructureExtractor()
+
+        result = extractor.extract_text_with_structure(str(scanned_pdf_path))
+
+        assert result["stats"]["num_paragraphs"] > 0
+        assert len(result["sections"]) > 0
+
+
 class TestFontAnalysis:
     """Test font size analysis on real documents."""
 

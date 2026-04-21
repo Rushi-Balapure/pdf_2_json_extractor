@@ -89,37 +89,49 @@ class PDFStructureExtractor:
         """Yield lines with their concatenated text, max font size, and y-position bounds."""
         for page_num in range(len(doc)):
             blocks = doc[page_num].get_text("dict").get("blocks", [])
-            for block in blocks:
-                lines = block.get("lines")
-                if not lines:
-                    continue
-                for line in lines:
-                    text_parts: list[str] = []
-                    max_size = 0.0
-                    top_y = None
-                    bottom_y = None
-                    for span in line.get("spans", []):
-                        text = span.get("text", "")
-                        if not text or not text.strip():
-                            continue
-                        text_parts.append(text)
-                        size = float(span.get("size", 0.0))
-                        if size > max_size:
-                            max_size = size
-                        bbox = span.get("bbox")
-                        if bbox:
-                            span_top, span_bottom = bbox[1], bbox[3]
-                            top_y = span_top if top_y is None else min(top_y, span_top)
-                            bottom_y = span_bottom if bottom_y is None else max(bottom_y, span_bottom)
-                    if not text_parts:
+            yield from self._iter_lines_from_blocks(page_num, blocks)
+
+    def _iter_lines_from_blocks(self, page_num: int, blocks: list[dict[str, Any]]):
+        """Yield normalized line items from block dictionaries."""
+        for block in blocks:
+            lines = block.get("lines")
+            if not lines:
+                continue
+            for line in lines:
+                text_parts: list[str] = []
+                max_size = 0.0
+                top_y = None
+                bottom_y = None
+                for span in line.get("spans", []):
+                    text = span.get("text", "")
+                    if not text or not text.strip():
                         continue
-                    yield {
-                        "page": page_num,
-                        "text": "".join(text_parts).strip(),
-                        "font_size": round(max_size, 1),
-                        "top": top_y,
-                        "bottom": bottom_y,
-                    }
+                    text_parts.append(text)
+                    size = float(span.get("size", 0.0))
+                    if size > max_size:
+                        max_size = size
+                    bbox = span.get("bbox")
+                    if bbox:
+                        span_top, span_bottom = bbox[1], bbox[3]
+                        top_y = span_top if top_y is None else min(top_y, span_top)
+                        bottom_y = span_bottom if bottom_y is None else max(bottom_y, span_bottom)
+                if not text_parts:
+                    continue
+                yield {
+                    "page": page_num,
+                    "text": "".join(text_parts).strip(),
+                    "font_size": round(max_size, 1),
+                    "top": top_y,
+                    "bottom": bottom_y,
+                }
+
+    def _iter_lines_ocr(self, doc: fitz.Document):
+        """Yield lines from OCR for pages that have no text layer."""
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            textpage = page.get_textpage_ocr(language="eng")
+            blocks = page.get_text("dict", textpage=textpage).get("blocks", [])
+            yield from self._iter_lines_from_blocks(page_num, blocks)
 
     def _classify_level(self, line_font_size: float, heading_levels: dict[float, str]) -> str | None:
         """Return heading level like 'H1'..'H6' if font size matches, else None."""
@@ -196,6 +208,8 @@ class PDFStructureExtractor:
 
             # Collect all non-empty lines first with layout info
             all_lines: list[dict[str, Any]] = list(self._iter_lines(doc))
+            if not all_lines:
+                all_lines = list(self._iter_lines_ocr(doc))
 
             # Split by headings and group non-heading lines into paragraphs per section
             buffer_non_heading: list[dict[str, Any]] = []
