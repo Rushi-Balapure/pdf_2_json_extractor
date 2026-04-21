@@ -3,8 +3,10 @@ Pytest configuration and fixtures for pdf_2_json_extractor tests.
 """
 
 import os
+import shutil
 from pathlib import Path
 
+import pymupdf as fitz
 import pytest
 
 
@@ -35,6 +37,34 @@ def real_pdf_path(papers_dir: Path) -> Path:
     if not pdf_path.exists():
         pytest.skip(f"Test PDF not found at {pdf_path}")
     return pdf_path
+
+
+@pytest.fixture
+def scanned_pdf_path(tmp_path: Path) -> Path:
+    """Create a scanned-like PDF page (image only, no text layer)."""
+    if shutil.which("tesseract") is None:
+        pytest.skip("tesseract is required for OCR fallback tests")
+
+    source_pdf = tmp_path / "source_text.pdf"
+    scanned_pdf = tmp_path / "scanned_like.pdf"
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Scanned OCR Test Heading", fontsize=24)
+    page.insert_text((72, 120), "This is body text for OCR fallback.", fontsize=12)
+    doc.save(str(source_pdf))
+    doc.close()
+
+    with fitz.open(str(source_pdf)) as src:
+        pix = src[0].get_pixmap(matrix=fitz.Matrix(2, 2))
+
+    out = fitz.open()
+    image_page = out.new_page(width=pix.width, height=pix.height)
+    image_page.insert_image(image_page.rect, stream=pix.tobytes("png"))
+    out.save(str(scanned_pdf))
+    out.close()
+
+    return scanned_pdf
 
 
 @pytest.fixture
