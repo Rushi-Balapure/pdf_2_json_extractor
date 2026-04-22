@@ -7,7 +7,7 @@ This repository is a Python package named `pdf_2_json_extractor`. It extracts st
 - `pdf_2_json_extractor/__init__.py`
   - Public package API.
   - Exposes `extract_pdf_to_dict(pdf_path)` and `extract_pdf_to_json(pdf_path, output_path=None)`.
-  - Version is currently `1.3.0`.
+  - Version is currently `1.3.1`.
 - `pdf_2_json_extractor/cli.py`
   - CLI entry point for the `pdf_2_json_extractor` console script.
   - Also runnable as `python -m pdf_2_json_extractor.cli`.

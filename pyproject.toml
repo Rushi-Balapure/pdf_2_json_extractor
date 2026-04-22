@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdf_2_json_extractor"
-version = "1.3.0"
+version = "1.3.1"
 description = "A high-performance PDF to JSON extraction library with layout-aware text extraction"
 readme = "README.md"
 license = {text = "Apache-2.0"}
