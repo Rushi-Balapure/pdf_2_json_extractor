@@ -102,6 +102,8 @@ class PDFStructureExtractor:
             for line in lines:
                 text_parts: list[str] = []
                 max_size = 0.0
+                bold_chars = 0
+                total_chars = 0
                 top_y = None
                 bottom_y = None
                 left_x = None
@@ -111,6 +113,10 @@ class PDFStructureExtractor:
                     if not text or not text.strip():
                         continue
                     text_parts.append(text)
+                    char_count = len(text.strip())
+                    total_chars += char_count
+                    if int(span.get("flags", 0)) & fitz.TEXT_FONT_BOLD:
+                        bold_chars += char_count
                     size = float(span.get("size", 0.0))
                     if size > max_size:
                         max_size = size
@@ -123,10 +129,13 @@ class PDFStructureExtractor:
                         bottom_y = span_bottom if bottom_y is None else max(bottom_y, span_bottom)
                 if not text_parts:
                     continue
+                bold_ratio = bold_chars / total_chars if total_chars else 0.0
                 yield {
                     "page": page_num,
                     "text": "".join(text_parts).strip(),
                     "font_size": round(max_size, 1),
+                    "is_bold": bold_ratio >= 0.8,
+                    "bold_ratio": bold_ratio,
                     "left": left_x,
                     "right": right_x,
                     "top": top_y,
@@ -321,6 +330,40 @@ class PDFStructureExtractor:
         """Return heading level like 'H1'..'H6' if font size matches, else None."""
         return heading_levels.get(round(line_font_size, 1))
 
+    def _classify_line(
+        self,
+        line: dict[str, Any],
+        heading_levels: dict[float, str],
+        previous_line: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Classify a line using size first and optional font-weight evidence."""
+        size_level = self._classify_level(float(line.get("font_size") or 0.0), heading_levels)
+        if size_level or not self.config.USE_BOLD_AS_HEADING_SIGNAL:
+            return size_level
+        if not line.get("is_bold") or float(line.get("bold_ratio") or 0.0) < 0.8:
+            return None
+
+        text = " ".join(str(line.get("text") or "").split())
+        if not text or len(text) > 80 or len(text.split()) > 12 or text.endswith((".", ",", ";")):
+            return None
+        if previous_line is not None and not self._has_heading_spacing(line, previous_line):
+            return None
+
+        used_levels = [int(level[1:]) for level in heading_levels.values() if level.startswith("H")]
+        return f"H{min(max(used_levels, default=0) + 1, self.config.MAX_HEADING_LEVELS)}"
+
+    @staticmethod
+    def _has_heading_spacing(line: dict[str, Any], previous_line: dict[str, Any]) -> bool:
+        """Return whether a bold line begins a new visual text region."""
+        if line.get("page") != previous_line.get("page"):
+            return True
+        top = line.get("top")
+        previous_bottom = previous_line.get("bottom")
+        if top is None or previous_bottom is None:
+            return False
+        minimum_gap = float(line.get("font_size") or 10.0) * 0.5
+        return float(top) - float(previous_bottom) >= minimum_gap
+
     def _group_paragraphs(self, lines: list[dict[str, Any]], gap_multiplier: float = 0.8) -> list[list[dict[str, Any]]]:
         """Group consecutive lines into paragraphs based on vertical gaps."""
         paragraphs: list[list[dict[str, Any]]] = []
@@ -404,8 +447,9 @@ class PDFStructureExtractor:
 
             # Split by headings and group non-heading lines into paragraphs per section
             buffer_non_heading: list[dict[str, Any]] = []
+            previous_line: dict[str, Any] | None = None
             for ln in all_lines:
-                level = self._classify_level(ln["font_size"], heading_levels)
+                level = self._classify_line(ln, heading_levels, previous_line)
                 if level:
                     # Flush any buffered content as a paragraph section if present
                     if buffer_non_heading:
@@ -421,6 +465,7 @@ class PDFStructureExtractor:
                     sections.append(current_section)
                 else:
                     buffer_non_heading.append(ln)
+                previous_line = ln
 
             # Flush remaining buffer into the last/current section
             if buffer_non_heading:
@@ -465,21 +510,53 @@ class PDFStructureExtractor:
         if len(doc) == 0:
             return "Untitled Document"
 
-        first_page = doc[0]
-        blocks = first_page.get_text("dict")["blocks"]
+        metadata_title = self._metadata_title(doc)
+        if metadata_title:
+            return metadata_title
 
-        # Look for the largest text on the first page
-        largest_text = ""
-        largest_size = 0
+        candidates = self._title_candidates(doc[0])
+        if not candidates:
+            return "Untitled Document"
+        return max(candidates, key=lambda candidate: (candidate[0], candidate[1]))[2]
 
-        for block in blocks:
-            if "lines" not in block:
-                continue
+    @staticmethod
+    def _metadata_title(doc: fitz.Document) -> str | None:
+        """Return useful normalized title metadata, if present."""
+        title = " ".join(str((doc.metadata or {}).get("title") or "").split())
+        normalized = title.casefold()
+        placeholders = {"untitled", "untitled document", "document", "microsoft word"}
+        if not title or normalized in placeholders or normalized.startswith("microsoft word -"):
+            return None
+        return title
 
-            for line in block["lines"]:
-                for span in line["spans"]:
-                    if span["text"].strip() and span["size"] > largest_size:
-                        largest_size = span["size"]
-                        largest_text = span["text"].strip()
+    def _title_candidates(self, page: fitz.Page) -> list[tuple[float, float, str]]:
+        """Build scored title candidates from complete first-page lines."""
+        candidates: list[tuple[float, float, str]] = []
+        for block in page.get_text("dict").get("blocks", []):
+            for line in block.get("lines", []):
+                candidate = self._score_title_line(line, page.rect)
+                if candidate:
+                    candidates.append(candidate)
+        return candidates
 
-        return largest_text if largest_text else "Untitled Document"
+    @staticmethod
+    def _score_title_line(
+        line: dict[str, Any], page_rect: fitz.Rect
+    ) -> tuple[float, float, str] | None:
+        """Score a plausible title line using prominence, position, and width."""
+        spans = [span for span in line.get("spans", []) if str(span.get("text") or "").strip()]
+        if not spans:
+            return None
+        text = " ".join("".join(str(span.get("text") or "") for span in spans).split())
+        if not text or (text.isdigit() and len(text) <= 4):
+            return None
+
+        font_size = max(float(span.get("size") or 0.0) for span in spans)
+        boxes = [span.get("bbox") for span in spans if span.get("bbox")]
+        left = min(float(box[0]) for box in boxes) if boxes else 0.0
+        top = min(float(box[1]) for box in boxes) if boxes else 0.0
+        right = max(float(box[2]) for box in boxes) if boxes else left
+        width_ratio = min(max((right - left) / max(page_rect.width, 1.0), 0.0), 1.0)
+        upper_page_bonus = 3.0 if top <= page_rect.height * 0.5 else 0.0
+        tie_break_score = width_ratio * 8.0 + min(len(text) / 40.0, 1.0) * 4.0 + upper_page_bonus
+        return font_size, tie_break_score, text

@@ -56,6 +56,11 @@ class Config:
         default_factory=lambda: _env_bool("PDF_TO_JSON_DETECT_COLUMNS", True)
     )
 
+    # Promote short, separated bold lines to headings when size alone is insufficient
+    USE_BOLD_AS_HEADING_SIGNAL: bool = field(
+        default_factory=lambda: _env_bool("PDF_TO_JSON_USE_BOLD_AS_HEADING_SIGNAL", False)
+    )
+
     def get_config(self) -> dict[str, Any]:
         """Return configuration as dictionary."""
         return {
@@ -63,4 +68,5 @@ class Config:
             "min_heading_frequency": self.MIN_HEADING_FREQUENCY,
             "max_heading_levels": self.MAX_HEADING_LEVELS,
             "detect_columns": self.DETECT_COLUMNS,
+            "use_bold_as_heading_signal": self.USE_BOLD_AS_HEADING_SIGNAL,
         }

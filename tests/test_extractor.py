@@ -442,6 +442,95 @@ class TestHeadingClassification:
         assert extractor._classify_level(16.04, heading_levels) == "H1"
 
 
+class TestBoldHeadingSignal:
+    """Test opt-in font-weight heading classification."""
+
+    @staticmethod
+    def _line(text: str = "Overview") -> dict:
+        return {
+            "text": text,
+            "font_size": 12.0,
+            "is_bold": True,
+            "bold_ratio": 1.0,
+            "page": 0,
+            "flow_region": 0,
+            "top": 100.0,
+            "bottom": 112.0,
+        }
+
+    @staticmethod
+    def _previous_line() -> dict:
+        return {"page": 0, "flow_region": 0, "top": 70.0, "bottom": 82.0}
+
+    def test_bold_body_text_promoted_when_enabled(self):
+        """A short separated bold line should become the next heading level."""
+        config = Config()
+        config.USE_BOLD_AS_HEADING_SIGNAL = True
+        extractor = PDFStructureExtractor(config)
+
+        level = extractor._classify_line(self._line(), {18.0: "H1"}, self._previous_line())
+
+        assert level == "H2"
+
+    def test_bold_body_text_unchanged_when_disabled(self):
+        """Bold body-sized text should remain content by default."""
+        extractor = PDFStructureExtractor()
+
+        level = extractor._classify_line(self._line(), {18.0: "H1"}, self._previous_line())
+
+        assert level is None
+
+    def test_long_bold_sentence_is_not_promoted(self):
+        """Bold paragraphs should not be mistaken for headings."""
+        config = Config()
+        config.USE_BOLD_AS_HEADING_SIGNAL = True
+        extractor = PDFStructureExtractor(config)
+        text = "This is a long bold sentence that should remain ordinary paragraph content because it reads like prose."
+
+        level = extractor._classify_line(self._line(text), {}, self._previous_line())
+
+        assert level is None
+
+    def test_column_transition_does_not_count_as_heading_spacing(self):
+        """The first bold line in another column still needs a visual gap."""
+        config = Config()
+        config.USE_BOLD_AS_HEADING_SIGNAL = True
+        extractor = PDFStructureExtractor(config)
+        line = self._line()
+        line.update({"flow_region": "0-1", "top": 100.0})
+        previous = self._previous_line()
+        previous.update({"flow_region": "0-0", "bottom": 112.0})
+
+        level = extractor._classify_line(line, {}, previous)
+
+        assert level is None
+
+    def test_bold_flags_are_retained_on_normalized_lines(self):
+        """PyMuPDF span flags should be reflected in normalized line style."""
+        extractor = PDFStructureExtractor()
+        blocks = [
+            {
+                "lines": [
+                    {
+                        "spans": [
+                            {
+                                "text": "Bold heading",
+                                "size": 12.0,
+                                "flags": fitz.TEXT_FONT_BOLD,
+                                "bbox": (50.0, 100.0, 130.0, 112.0),
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+
+        line = list(extractor._iter_lines_from_blocks(0, blocks))[0]
+
+        assert line["is_bold"] is True
+        assert line["bold_ratio"] == 1.0
+
+
 class TestTitleExtraction:
     """Test title extraction from documents."""
 
@@ -456,6 +545,163 @@ class TestTitleExtraction:
         assert len(title) > 0
         assert title != "Untitled Document"
 
+    def test_prefers_pdf_metadata_title(self):
+        """Valid PDF metadata should beat larger decorative page text."""
+        extractor = PDFStructureExtractor()
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 100), "DECORATION", fontsize=36)
+        doc.set_metadata({"title": "My Real Title"})
+
+        title = extractor._extract_title(doc, {})
+        doc.close()
+
+        assert title == "My Real Title"
+
+    def test_ignores_margin_numeral_without_metadata(self):
+        """A large decorative numeral should not replace a plausible title."""
+        extractor = PDFStructureExtractor()
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((20, 40), "7", fontsize=36)
+        page.insert_text((72, 120), "A Practical PDF Title", fontsize=24)
+
+        title = extractor._extract_title(doc, {})
+        doc.close()
+
+        assert title == "A Practical PDF Title"
+
+    def test_combines_all_spans_in_title_line(self):
+        """Visual title selection should return the complete line text."""
+        extractor = PDFStructureExtractor()
+
+        class FakePage:
+            rect = fitz.Rect(0, 0, 600, 800)
+
+            def get_text(self, output: str) -> dict:
+                assert output == "dict"
+                return {
+                    "blocks": [
+                        {
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {"text": "Structured ", "size": 24, "bbox": (72, 100, 180, 126)},
+                                        {"text": "PDF Title", "size": 24, "bbox": (180, 100, 290, 126)},
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+        class FakeDocument:
+            metadata: dict[str, str] = {}
+
+            def __len__(self) -> int:
+                return 1
+
+            def __getitem__(self, index: int) -> FakePage:
+                assert index == 0
+                return FakePage()
+
+        title = extractor._extract_title(FakeDocument(), {})
+
+        assert title == "Structured PDF Title"
+
+    def test_font_prominence_outweighs_wide_body_text(self):
+        """A wide body line should not outscore a modestly larger title."""
+
+        class FakePage:
+            rect = fitz.Rect(0, 0, 600, 800)
+
+            def get_text(self, output: str) -> dict:
+                assert output == "dict"
+                return {
+                    "blocks": [
+                        {
+                            "lines": [
+                                {"spans": [{"text": "Short Title", "size": 14, "bbox": (72, 80, 150, 98)}]},
+                                {
+                                    "spans": [
+                                        {
+                                            "text": "A long body sentence extending across nearly the full available page width.",
+                                            "size": 12,
+                                            "bbox": (50, 130, 550, 145),
+                                        }
+                                    ]
+                                },
+                            ]
+                        }
+                    ]
+                }
+
+        class FakeDocument:
+            metadata: dict[str, str] = {}
+
+            def __len__(self) -> int:
+                return 1
+
+            def __getitem__(self, index: int) -> FakePage:
+                assert index == 0
+                return FakePage()
+
+        title = PDFStructureExtractor()._extract_title(FakeDocument(), {})
+
+        assert title == "Short Title"
+
+    def test_one_point_font_difference_outweighs_body_width(self):
+        """Even a modestly larger title font should remain the primary signal."""
+
+        class FakePage:
+            rect = fitz.Rect(0, 0, 600, 800)
+
+            def get_text(self, output: str) -> dict:
+                assert output == "dict"
+                return {
+                    "blocks": [
+                        {
+                            "lines": [
+                                {"spans": [{"text": "Brief Title", "size": 13, "bbox": (72, 200, 110, 216)}]},
+                                {
+                                    "spans": [
+                                        {
+                                            "text": "A long body sentence extending across nearly the full available page width.",
+                                            "size": 12,
+                                            "bbox": (50, 240, 550, 255),
+                                        }
+                                    ]
+                                },
+                            ]
+                        }
+                    ]
+                }
+
+        class FakeDocument:
+            metadata: dict[str, str] = {}
+
+            def __len__(self) -> int:
+                return 1
+
+            def __getitem__(self, index: int) -> FakePage:
+                assert index == 0
+                return FakePage()
+
+        assert PDFStructureExtractor()._extract_title(FakeDocument(), {}) == "Brief Title"
+
+    def test_top_edge_text_can_be_a_real_title(self):
+        """Non-decorative title text near the page top should remain eligible."""
+        extractor = PDFStructureExtractor()
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 22), "Top Edge Title", fontsize=20)
+        page.insert_text((72, 100), "Ordinary body content across the page", fontsize=12)
+
+        title = extractor._extract_title(doc, {})
+        doc.close()
+
+        assert title == "Top Edge Title"
+
 
 class TestConfig:
     """Test Config class."""
@@ -468,6 +714,7 @@ class TestConfig:
         assert config.MIN_HEADING_FREQUENCY == 0.001
         assert config.MAX_HEADING_LEVELS == 6
         assert config.DETECT_COLUMNS is True
+        assert config.USE_BOLD_AS_HEADING_SIGNAL is False
 
     def test_get_config_returns_dict(self):
         """get_config should return a dictionary representation."""
