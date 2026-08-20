@@ -116,6 +116,159 @@ class TestExtractTextWithStructure:
             extractor.extract_text_with_structure(str(empty_file_pdf_path))
 
 
+class TestStreamingExtraction:
+    """Test incremental section assembly and PDF resource cleanup."""
+
+    @staticmethod
+    def _line(page: int, text: str, size: float, top: float, flow: int = 0) -> dict:
+        return {
+            "page": page,
+            "text": text,
+            "font_size": size,
+            "top": top,
+            "bottom": top + size,
+            "flow_region": flow,
+        }
+
+    @staticmethod
+    def _legacy_sections(extractor, lines: list[dict], heading_levels: dict[float, str]) -> list[dict]:
+        """Reproduce the pre-streaming buffer-and-group assembly algorithm."""
+        sections: list[dict] = []
+        current_section = None
+        buffered: list[dict] = []
+        previous_line = None
+        for line in lines:
+            level = extractor._classify_line(line, heading_levels, previous_line)
+            if level:
+                if buffered:
+                    if current_section is None:
+                        current_section = {"level": "content", "title": None, "paragraphs": []}
+                        sections.append(current_section)
+                    grouped = extractor._group_paragraphs(buffered)
+                    current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+                    buffered = []
+                current_section = {"level": level, "title": line["text"], "paragraphs": []}
+                if extractor.config.INCLUDE_PAGE_NUMBERS:
+                    current_section["page"] = int(line.get("page") or 0) + 1
+                sections.append(current_section)
+            else:
+                buffered.append(line)
+            previous_line = line
+        if buffered:
+            if current_section is None:
+                current_section = {"level": "content", "title": None, "paragraphs": []}
+                sections.append(current_section)
+            grouped = extractor._group_paragraphs(buffered)
+            current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+        return sections
+
+    def test_section_assembly_preserves_grouping_and_pages(self):
+        """Streaming assembly should preserve heading, gap, flow, and page boundaries."""
+        config = Config()
+        config.INCLUDE_PAGE_NUMBERS = True
+        extractor = PDFStructureExtractor(config)
+        lines = [
+            self._line(0, "First", 20.0, 40.0),
+            self._line(0, "Body one", 12.0, 80.0),
+            self._line(0, "continues", 12.0, 94.0),
+            self._line(0, "New paragraph", 12.0, 130.0),
+            self._line(1, "Next page", 12.0, 40.0),
+            self._line(1, "Second", 20.0, 80.0),
+            self._line(1, "Other flow", 12.0, 120.0, flow=1),
+        ]
+
+        heading_levels = {20.0: "H1"}
+        sections = extractor._build_sections(iter(lines), heading_levels)
+
+        assert sections == self._legacy_sections(extractor, lines, heading_levels)
+        assert sections == [
+            {
+                "level": "H1",
+                "title": "First",
+                "page": 1,
+                "paragraphs": [
+                    {"text": "Body one continues", "page": 1},
+                    {"text": "New paragraph", "page": 1},
+                    {"text": "Next page", "page": 2},
+                ],
+            },
+            {
+                "level": "H1",
+                "title": "Second",
+                "page": 2,
+                "paragraphs": [{"text": "Other flow", "page": 2}],
+            },
+        ]
+
+    def test_lines_are_classified_before_generator_advances(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Extraction should not materialize the complete line generator first."""
+        pdf_path = tmp_path / "stream.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+        extractor = PDFStructureExtractor()
+        classified = False
+        original_classify = extractor._classify_line
+
+        def observed_lines(doc):
+            yield self._line(0, "Heading", 20.0, 40.0)
+            assert classified
+            yield self._line(0, "Body", 12.0, 80.0)
+
+        def observed_classify(line, levels, previous_line=None):
+            nonlocal classified
+            classified = True
+            return original_classify(line, levels, previous_line)
+
+        monkeypatch.setattr(extractor, "analyze_font_sizes", lambda doc: ({12.0: 4}, {20.0: "H1"}))
+        monkeypatch.setattr(extractor, "_extract_title", lambda doc, levels: "Stream")
+        monkeypatch.setattr(extractor, "_iter_lines", observed_lines)
+        monkeypatch.setattr(extractor, "_classify_line", observed_classify)
+
+        result = extractor.extract_text_with_structure(str(pdf_path))
+
+        assert result["sections"][0]["title"] == "Heading"
+
+    def test_exception_path_exits_document_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The opened document context should exit when line extraction fails."""
+
+        class ContextDocument:
+            exited = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                self.exited = True
+
+            def __len__(self):
+                return 1
+
+        document = ContextDocument()
+        pdf_path = tmp_path / "context.pdf"
+        pdf_path.touch()
+        extractor = PDFStructureExtractor()
+
+        def failing_lines(doc):
+            raise RuntimeError("line failure")
+            yield
+
+        monkeypatch.setattr(fitz, "open", lambda path: document)
+        monkeypatch.setattr(extractor, "analyze_font_sizes", lambda doc: ({}, {}))
+        monkeypatch.setattr(extractor, "_extract_title", lambda doc, levels: "Context")
+        monkeypatch.setattr(extractor, "_iter_lines", failing_lines)
+
+        with pytest.raises(PDFProcessingError, match="line failure"):
+            extractor.extract_text_with_structure(str(pdf_path))
+
+        assert document.exited is True
+
+
 class TestMultiColumnOrdering:
     """Test visual reading order for multi-column documents."""
 

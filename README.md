@@ -217,11 +217,16 @@ docker run --rm -v $(pwd)/test:/test pdf_2_json_extractor:latest /test/document.
 pdf_2_json_extractor is optimized for high performance:
 
 - **CPU-only processing**: No GPU requirements
-- **Memory efficient**: Processes large documents without excessive memory usage
+- **Streaming assembly**: Processes extracted lines page by page while retaining only the current paragraph's line state
 - **Fast extraction**: Typical processing times:
   - 10-page document: ~1-2 seconds
   - 50-page document: ~5-10 seconds
   - 100-page document: ~15-25 seconds
+
+The dictionary-returning API still retains the final extracted structure in
+memory, so total memory use scales with the amount of content returned. Line
+streaming bounds intermediate extraction overhead; it does not make the final
+JSON result constant-memory.
 
 ## Supported Languages
 

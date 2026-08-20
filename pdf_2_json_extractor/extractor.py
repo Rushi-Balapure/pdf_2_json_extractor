@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -384,39 +384,37 @@ class PDFStructureExtractor:
         """Group consecutive lines into paragraphs based on vertical gaps."""
         paragraphs: list[list[dict[str, Any]]] = []
         current: list[dict[str, Any]] = []
-
-        prev_bottom = None
-        prev_page = None
-        prev_flow_region = None
         for ln in lines:
-            if prev_bottom is None:
+            if not current:
                 current = [ln]
-                prev_bottom = ln.get("bottom")
-                prev_page = ln.get("page")
-                prev_flow_region = ln.get("flow_region")
                 continue
-
-            top = ln.get("top")
-            font_size = ln.get("font_size") or 0.0
-            # Heuristic threshold: if the gap is larger than k * font_size, start a new paragraph
-            threshold = (font_size or 10.0) * gap_multiplier
-            gap = (top - prev_bottom) if (top is not None and prev_bottom is not None) else threshold + 1
-
-            flow_changed = ln.get("page") != prev_page or ln.get("flow_region") != prev_flow_region
-            if flow_changed or (gap is not None and gap > threshold):
-                if current:
-                    paragraphs.append(current)
+            if self._starts_new_paragraph(current[-1], ln, gap_multiplier):
+                paragraphs.append(current)
                 current = [ln]
             else:
                 current.append(ln)
-            prev_bottom = ln.get("bottom")
-            prev_page = ln.get("page")
-            prev_flow_region = ln.get("flow_region")
 
         if current:
             paragraphs.append(current)
 
         return paragraphs
+
+    @staticmethod
+    def _starts_new_paragraph(
+        previous_line: dict[str, Any], line: dict[str, Any], gap_multiplier: float = 0.8
+    ) -> bool:
+        """Return whether a line begins a new page, flow, or visual paragraph."""
+        if line.get("page") != previous_line.get("page"):
+            return True
+        if line.get("flow_region") != previous_line.get("flow_region"):
+            return True
+        top = line.get("top")
+        previous_bottom = previous_line.get("bottom")
+        font_size = float(line.get("font_size") or 10.0)
+        threshold = font_size * gap_multiplier
+        if top is None or previous_bottom is None:
+            return True
+        return float(top) - float(previous_bottom) > threshold
 
     def _format_paragraphs(self, paragraphs: list[list[dict[str, Any]]]) -> list[str | dict[str, Any]]:
         """Format grouped lines using the configured public output shape."""
@@ -430,6 +428,47 @@ class PDFStructureExtractor:
             else:
                 formatted.append(text)
         return formatted
+
+    def _append_paragraph(
+        self,
+        sections: list[dict[str, Any]],
+        current_section: dict[str, Any] | None,
+        paragraph: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Append one paragraph, creating the initial content section if needed."""
+        if not paragraph:
+            return current_section
+        if current_section is None:
+            current_section = {"level": "content", "title": None, "paragraphs": []}
+            sections.append(current_section)
+        current_section["paragraphs"].extend(self._format_paragraphs([paragraph]))
+        return current_section
+
+    def _build_sections(
+        self, lines: Iterable[dict[str, Any]], heading_levels: dict[float, str]
+    ) -> list[dict[str, Any]]:
+        """Build sections while retaining only the current paragraph's lines."""
+        sections: list[dict[str, Any]] = []
+        current_section: dict[str, Any] | None = None
+        paragraph: list[dict[str, Any]] = []
+        previous_line: dict[str, Any] | None = None
+        for line in lines:
+            level = self._classify_line(line, heading_levels, previous_line)
+            if level:
+                current_section = self._append_paragraph(sections, current_section, paragraph)
+                paragraph = []
+                current_section = {"level": level, "title": line["text"], "paragraphs": []}
+                if self.config.INCLUDE_PAGE_NUMBERS:
+                    current_section["page"] = int(line.get("page") or 0) + 1
+                sections.append(current_section)
+            else:
+                if paragraph and self._starts_new_paragraph(paragraph[-1], line):
+                    current_section = self._append_paragraph(sections, current_section, paragraph)
+                    paragraph = []
+                paragraph.append(line)
+            previous_line = line
+        self._append_paragraph(sections, current_section, paragraph)
+        return sections
 
     def extract_text_with_structure(self, pdf_path: str) -> dict[str, Any]:
         """
@@ -452,82 +491,9 @@ class PDFStructureExtractor:
         if not os.path.exists(pdf_path):
             raise PDFFileNotFoundError(f"PDF file not found: {pdf_path}")
 
-        doc: fitz.Document | None = None
         try:
-            doc = fitz.open(pdf_path)
-
-            # Validate that document has content
-            if len(doc) == 0:
-                raise InvalidPDFError("PDF document is empty")
-
-            # Analyze font sizes for heading detection
-            font_histogram, heading_levels = self.analyze_font_sizes(doc)
-
-            # Extract document title (usually from first page, largest non-body font)
-            title = self._extract_title(doc, heading_levels)
-
-            # Extract structured content
-            sections: list[dict[str, Any]] = []
-            current_section: dict[str, Any] | None = None
-
-            # Collect all non-empty lines first with layout info
-            all_lines: list[dict[str, Any]] = list(self._iter_lines(doc))
-
-            # Split by headings and group non-heading lines into paragraphs per section
-            buffer_non_heading: list[dict[str, Any]] = []
-            previous_line: dict[str, Any] | None = None
-            for ln in all_lines:
-                level = self._classify_line(ln, heading_levels, previous_line)
-                if level:
-                    # Flush any buffered content as a paragraph section if present
-                    if buffer_non_heading:
-                        paragraphs = self._group_paragraphs(buffer_non_heading)
-                        if current_section is None:
-                            current_section = {"level": "content", "title": None, "paragraphs": []}
-                            sections.append(current_section)
-                        current_section["paragraphs"].extend(self._format_paragraphs(paragraphs))
-                        buffer_non_heading = []
-
-                    # Start a new heading section
-                    current_section = {"level": level, "title": ln["text"], "paragraphs": []}
-                    if self.config.INCLUDE_PAGE_NUMBERS:
-                        current_section["page"] = int(ln.get("page") or 0) + 1
-                    sections.append(current_section)
-                else:
-                    buffer_non_heading.append(ln)
-                previous_line = ln
-
-            # Flush remaining buffer into the last/current section
-            if buffer_non_heading:
-                paragraphs = self._group_paragraphs(buffer_non_heading)
-                if current_section is None:
-                    current_section = {"level": "content", "title": None, "paragraphs": []}
-                    sections.append(current_section)
-                current_section["paragraphs"].extend(self._format_paragraphs(paragraphs))
-
-            page_count = len(doc)
-
-            processing_time = time.time() - start_time
-            logger.info(f"Processing completed in {processing_time:.2f} seconds")
-
-            # Prepare enriched output
-            num_headings = sum(1 for s in sections if s.get("level", "").startswith("H"))
-            num_paragraphs = sum(len(s.get("paragraphs", [])) for s in sections)
-
-            return {
-                "title": title,
-                "sections": sections,
-                "font_histogram": {str(k): v for k, v in sorted(font_histogram.items())},
-                "heading_levels": {str(k): v for k, v in heading_levels.items()},
-                "stats": {
-                    "page_count": page_count,
-                    "processing_time": processing_time,
-                    "num_sections": len(sections),
-                    "num_headings": num_headings,
-                    "num_paragraphs": num_paragraphs
-                }
-            }
-
+            with fitz.open(pdf_path) as doc:
+                return self._extract_document(doc, start_time)
         except fitz.FileDataError as e:
             raise InvalidPDFError(f"Invalid or corrupted PDF file: {e}")
         except PDFProcessingError:
@@ -535,9 +501,31 @@ class PDFStructureExtractor:
         except Exception as e:
             logger.error(f"Error processing PDF: {e}")
             raise PDFProcessingError(f"Failed to process PDF: {e}")
-        finally:
-            if doc is not None:
-                doc.close()
+
+    def _extract_document(self, doc: fitz.Document, start_time: float) -> dict[str, Any]:
+        """Extract one open document and return the public result dictionary."""
+        if len(doc) == 0:
+            raise InvalidPDFError("PDF document is empty")
+        font_histogram, heading_levels = self.analyze_font_sizes(doc)
+        title = self._extract_title(doc, heading_levels)
+        sections = self._build_sections(self._iter_lines(doc), heading_levels)
+        processing_time = time.time() - start_time
+        logger.info(f"Processing completed in {processing_time:.2f} seconds")
+        num_headings = sum(1 for section in sections if section.get("level", "").startswith("H"))
+        num_paragraphs = sum(len(section.get("paragraphs", [])) for section in sections)
+        return {
+            "title": title,
+            "sections": sections,
+            "font_histogram": {str(size): count for size, count in sorted(font_histogram.items())},
+            "heading_levels": {str(size): level for size, level in heading_levels.items()},
+            "stats": {
+                "page_count": len(doc),
+                "processing_time": processing_time,
+                "num_sections": len(sections),
+                "num_headings": num_headings,
+                "num_paragraphs": num_paragraphs,
+            },
+        }
 
     def _extract_title(self, doc: fitz.Document, heading_levels: dict[float, str]) -> str:
         """Extract document title from first page."""
