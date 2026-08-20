@@ -44,6 +44,12 @@ pdf_2_json_extractor document.pdf -o output.json
 
 # Compact output; pretty-printed JSON is the default
 pdf_2_json_extractor document.pdf --compact
+
+# Process multiple files into an output directory
+pdf_2_json_extractor first.pdf second.pdf -o output/
+
+# Process all PDFs directly inside a directory
+pdf_2_json_extractor pdfs/ -o output/
 ```
 
 ## Docker Usage
@@ -62,12 +68,18 @@ docker run --rm -v $(pwd)/pdfs:/pdfs pdf_2_json_extractor:latest /pdfs/document.
 ## Batch Processing
 
 ```bash
-# Process all PDFs in a directory
-for pdf in pdfs/*.pdf; do
-    echo "Processing: $pdf"
-    pdf_2_json_extractor "$pdf" -o "output/$(basename "$pdf" .pdf).json"
-done
+# Process all top-level PDFs in a directory
+pdf_2_json_extractor pdfs/ -o output/
+
+# Process selected PDFs
+pdf_2_json_extractor pdfs/one.pdf pdfs/two.pdf -o output/
 ```
+
+Batch scans are non-recursive and case-insensitive for `.pdf` extensions.
+Directory symlinks are rejected. Inputs run in deterministic sorted order, with
+per-file status on stderr. Processing continues after individual failures and
+returns exit status 1 if any file fails. Duplicate stems are rejected because
+they would map to the same output filename.
 
 ## Advanced Usage
 

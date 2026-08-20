@@ -54,7 +54,19 @@ pdf_2_json_extractor document.pdf -o output.json
 
 # Compact output; pretty-printed JSON is the default
 pdf_2_json_extractor document.pdf --compact
+
+# Process multiple files into an output directory
+pdf_2_json_extractor first.pdf second.pdf -o output/
+
+# Process all PDFs directly inside a directory
+pdf_2_json_extractor pdfs/ -o output/
 ```
+
+Directory scans are non-recursive, match `.pdf` case-insensitively, and do not
+follow directory symlinks. Batch inputs are sorted before processing. Each
+file's status is written to stderr, processing continues after individual
+failures, and the command exits with status 1 if any file fails. Duplicate
+input stems are rejected to prevent output overwrites.
 
 ## JSON Output Format
 
