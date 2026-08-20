@@ -25,6 +25,12 @@ def _env_bool(key: str, default: bool) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def _env_str(key: str, default: str) -> str:
+    """Read a non-empty string from an environment variable with fallback."""
+    value = os.getenv(key, "").strip()
+    return value or default
+
+
 @dataclass
 class Config:
     """
@@ -61,6 +67,11 @@ class Config:
         default_factory=lambda: _env_bool("PDF_TO_JSON_USE_BOLD_AS_HEADING_SIGNAL", False)
     )
 
+    # Tesseract language expression used for image-only pages, such as eng+fra
+    OCR_LANGUAGE: str = field(
+        default_factory=lambda: _env_str("PDF_TO_JSON_OCR_LANGUAGE", "eng")
+    )
+
     def get_config(self) -> dict[str, Any]:
         """Return configuration as dictionary."""
         return {
@@ -69,4 +80,5 @@ class Config:
             "max_heading_levels": self.MAX_HEADING_LEVELS,
             "detect_columns": self.DETECT_COLUMNS,
             "use_bold_as_heading_signal": self.USE_BOLD_AS_HEADING_SIGNAL,
+            "ocr_language": self.OCR_LANGUAGE,
         }

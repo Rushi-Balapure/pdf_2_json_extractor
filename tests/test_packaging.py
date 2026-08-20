@@ -38,6 +38,7 @@ def test_documented_environment_variables_are_supported():
         "PDF_TO_JSON_MAX_HEADING_LEVELS",
         "PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS",
         "PDF_TO_JSON_MIN_HEADING_FREQUENCY",
+        "PDF_TO_JSON_OCR_LANGUAGE",
         "PDF_TO_JSON_USE_BOLD_AS_HEADING_SIGNAL",
     }
 

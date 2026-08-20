@@ -92,6 +92,8 @@ class PDFStructureExtractor:
             page = doc[page_num]
             blocks = page.get_text("dict").get("blocks", [])
             lines = list(self._iter_lines_from_blocks(page_num, blocks))
+            if not lines:
+                lines = list(self._iter_page_ocr(page_num, page))
             yield from self._order_page_lines(lines, page.rect.width)
 
     def _iter_lines_from_blocks(
@@ -321,13 +323,24 @@ class PDFStructureExtractor:
         return float(line.get("top") or 0.0), float(line.get("left") or 0.0)
 
     def _iter_lines_ocr(self, doc: fitz.Document) -> Iterator[dict[str, Any]]:
-        """Yield lines from OCR for pages that have no text layer."""
+        """Yield OCR lines for every page in a document."""
         for page_num in range(len(doc)):
             page = doc[page_num]
-            textpage = page.get_textpage_ocr(language="eng")
-            blocks = page.get_text("dict", textpage=textpage).get("blocks", [])
-            lines = list(self._iter_lines_from_blocks(page_num, blocks))
+            lines = list(self._iter_page_ocr(page_num, page))
             yield from self._order_page_lines(lines, page.rect.width)
+
+    def _iter_page_ocr(self, page_num: int, page: fitz.Page) -> Iterator[dict[str, Any]]:
+        """Yield normalized OCR lines for one page with actionable failures."""
+        try:
+            textpage = page.get_textpage_ocr(language=self.config.OCR_LANGUAGE)
+        except RuntimeError as exc:
+            language = self.config.OCR_LANGUAGE
+            raise PDFProcessingError(
+                f"OCR failed on page {page_num + 1} using language '{language}'. "
+                "Ensure Tesseract and the requested language packs are installed."
+            ) from exc
+        blocks = page.get_text("dict", textpage=textpage).get("blocks", [])
+        yield from self._iter_lines_from_blocks(page_num, blocks)
 
     def _classify_level(self, line_font_size: float, heading_levels: dict[float, str]) -> str | None:
         """Return heading level like 'H1'..'H6' if font size matches, else None."""
@@ -426,6 +439,7 @@ class PDFStructureExtractor:
         if not os.path.exists(pdf_path):
             raise PDFFileNotFoundError(f"PDF file not found: {pdf_path}")
 
+        doc: fitz.Document | None = None
         try:
             doc = fitz.open(pdf_path)
 
@@ -445,8 +459,6 @@ class PDFStructureExtractor:
 
             # Collect all non-empty lines first with layout info
             all_lines: list[dict[str, Any]] = list(self._iter_lines(doc))
-            if not all_lines:
-                all_lines = list(self._iter_lines_ocr(doc))
 
             # Split by headings and group non-heading lines into paragraphs per section
             buffer_non_heading: list[dict[str, Any]] = []
@@ -479,7 +491,6 @@ class PDFStructureExtractor:
                 current_section["paragraphs"].extend([" ".join(p_i["text"] for p_i in para) for para in paragraphs])
 
             page_count = len(doc)
-            doc.close()
 
             processing_time = time.time() - start_time
             logger.info(f"Processing completed in {processing_time:.2f} seconds")
@@ -504,9 +515,14 @@ class PDFStructureExtractor:
 
         except fitz.FileDataError as e:
             raise InvalidPDFError(f"Invalid or corrupted PDF file: {e}")
+        except PDFProcessingError:
+            raise
         except Exception as e:
             logger.error(f"Error processing PDF: {e}")
             raise PDFProcessingError(f"Failed to process PDF: {e}")
+        finally:
+            if doc is not None:
+                doc.close()
 
     def _extract_title(self, doc: fitz.Document, heading_levels: dict[float, str]) -> str:
         """Extract document title from first page."""

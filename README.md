@@ -10,7 +10,7 @@ A high-performance Python library for extracting structured content from PDF doc
 ## Features
 
 - **Layout-aware extraction**: Detects document structure including headings of different levels using font size and style analysis
-- **Multilingual support**: Handles Latin, Cyrillic, Asian scripts (Chinese, Japanese, Korean), Arabic, Hebrew, and other complex Unicode scripts
+- **Multilingual support**: Preserves Unicode text layers and supports configurable Tesseract languages for scanned pages
 - **High performance**: Processes 50-page PDFs in ≤10 seconds on modern CPUs
 - **Small footprint**: Minimal dependencies, no heavy ML models used
 - **Offline operation**: No internet connectivity required to run
@@ -142,8 +142,14 @@ created:
 | `PDF_TO_JSON_MAX_HEADING_LEVELS` | `6` | Deepest generated heading level |
 | `PDF_TO_JSON_DETECT_COLUMNS` | `true` | Enable visual multi-column reading order |
 | `PDF_TO_JSON_USE_BOLD_AS_HEADING_SIGNAL` | `false` | Promote short, separated bold lines when size is inconclusive |
+| `PDF_TO_JSON_OCR_LANGUAGE` | `eng` | Tesseract language expression for image-only pages |
 
 Boolean settings accept `1`, `true`, `yes`, or `on` as true values.
+
+OCR languages use Tesseract codes and may be combined with `+`, for example
+`eng+fra`. The matching Tesseract language packs must be installed locally;
+the extractor reports an error instead of silently switching languages when a
+requested pack is unavailable.
 
 ## Development
 

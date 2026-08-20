@@ -10,7 +10,7 @@ import pymupdf as fitz
 import pytest
 
 from pdf_2_json_extractor.config import Config
-from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError
+from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
 from pdf_2_json_extractor.extractor import PDFStructureExtractor
 
 
@@ -314,6 +314,55 @@ class TestMultiColumnOrdering:
 class TestOCRFallback:
     """Test OCR fallback behavior for scanned PDFs."""
 
+    @staticmethod
+    def _blocks(text: str) -> list[dict]:
+        return [
+            {
+                "lines": [
+                    {
+                        "spans": [
+                            {
+                                "text": text,
+                                "size": 12.0,
+                                "flags": 0,
+                                "bbox": (50.0, 100.0, 200.0, 112.0),
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+
+    class FakePage:
+        rect = fitz.Rect(0, 0, 600, 800)
+
+        def __init__(self, native_text: str | None, ocr_text: str = "OCR text") -> None:
+            self.native_text = native_text
+            self.ocr_text = ocr_text
+            self.ocr_languages: list[str] = []
+            self.textpage = object()
+
+        def get_text(self, output: str, textpage: object | None = None) -> dict:
+            assert output == "dict"
+            if textpage is self.textpage:
+                return {"blocks": TestOCRFallback._blocks(self.ocr_text)}
+            blocks = TestOCRFallback._blocks(self.native_text) if self.native_text else []
+            return {"blocks": blocks}
+
+        def get_textpage_ocr(self, language: str) -> object:
+            self.ocr_languages.append(language)
+            return self.textpage
+
+    class FakeDocument:
+        def __init__(self, pages: list["TestOCRFallback.FakePage"]) -> None:
+            self.pages = pages
+
+        def __len__(self) -> int:
+            return len(self.pages)
+
+        def __getitem__(self, index: int) -> "TestOCRFallback.FakePage":
+            return self.pages[index]
+
     def test_uses_ocr_for_scanned_pdf(self, scanned_pdf_path: Path):
         """Scanned image-only PDFs should still produce extracted content."""
         extractor = PDFStructureExtractor()
@@ -322,6 +371,46 @@ class TestOCRFallback:
 
         assert result["stats"]["num_paragraphs"] > 0
         assert len(result["sections"]) > 0
+
+    def test_ocr_language_is_forwarded(self):
+        """Configured Tesseract language expressions should pass through unchanged."""
+        config = Config()
+        config.OCR_LANGUAGE = "eng+fra"
+        extractor = PDFStructureExtractor(config)
+        page = self.FakePage(native_text=None)
+
+        lines = list(extractor._iter_lines_ocr(self.FakeDocument([page])))
+
+        assert lines[0]["text"] == "OCR text"
+        assert page.ocr_languages == ["eng+fra"]
+
+    def test_uses_ocr_only_for_pages_without_native_text(self):
+        """Mixed documents should retain native text and OCR scanned pages."""
+        extractor = PDFStructureExtractor()
+        native_page = self.FakePage(native_text="Native text")
+        scanned_page = self.FakePage(native_text=None, ocr_text="Scanned text")
+
+        lines = list(extractor._iter_lines(self.FakeDocument([native_page, scanned_page])))
+
+        assert [line["text"] for line in lines] == ["Native text", "Scanned text"]
+        assert native_page.ocr_languages == []
+        assert scanned_page.ocr_languages == ["eng"]
+
+    def test_reports_ocr_language_failures(self):
+        """Unavailable language packs should produce an actionable package error."""
+
+        class FailingPage(self.FakePage):
+            def get_textpage_ocr(self, language: str) -> object:
+                raise RuntimeError("language data not found")
+
+        config = Config()
+        config.OCR_LANGUAGE = "fra"
+        extractor = PDFStructureExtractor(config)
+        native_page = self.FakePage(native_text="Native text")
+        failing_page = FailingPage(native_text=None)
+
+        with pytest.raises(PDFProcessingError, match="page 2.*fra"):
+            list(extractor._iter_lines(self.FakeDocument([native_page, failing_page])))
 
 
 class TestFontAnalysis:
@@ -715,6 +804,15 @@ class TestConfig:
         assert config.MAX_HEADING_LEVELS == 6
         assert config.DETECT_COLUMNS is True
         assert config.USE_BOLD_AS_HEADING_SIGNAL is False
+        assert config.OCR_LANGUAGE == "eng"
+
+    def test_ocr_language_reads_environment(self, monkeypatch: pytest.MonkeyPatch):
+        """OCR language should be read when a Config instance is created."""
+        monkeypatch.setenv("PDF_TO_JSON_OCR_LANGUAGE", "deu+eng")
+
+        config = Config()
+
+        assert config.OCR_LANGUAGE == "deu+eng"
 
     def test_get_config_returns_dict(self):
         """get_config should return a dictionary representation."""
