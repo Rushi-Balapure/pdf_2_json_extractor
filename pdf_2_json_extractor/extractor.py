@@ -88,8 +88,10 @@ class PDFStructureExtractor:
     def _iter_lines(self, doc: fitz.Document):
         """Yield lines with their concatenated text, max font size, and y-position bounds."""
         for page_num in range(len(doc)):
-            blocks = doc[page_num].get_text("dict").get("blocks", [])
-            yield from self._iter_lines_from_blocks(page_num, blocks)
+            page = doc[page_num]
+            blocks = page.get_text("dict").get("blocks", [])
+            lines = list(self._iter_lines_from_blocks(page_num, blocks))
+            yield from self._order_page_lines(lines, page.rect.width)
 
     def _iter_lines_from_blocks(self, page_num: int, blocks: list[dict[str, Any]]):
         """Yield normalized line items from block dictionaries."""
@@ -102,6 +104,8 @@ class PDFStructureExtractor:
                 max_size = 0.0
                 top_y = None
                 bottom_y = None
+                left_x = None
+                right_x = None
                 for span in line.get("spans", []):
                     text = span.get("text", "")
                     if not text or not text.strip():
@@ -112,7 +116,9 @@ class PDFStructureExtractor:
                         max_size = size
                     bbox = span.get("bbox")
                     if bbox:
-                        span_top, span_bottom = bbox[1], bbox[3]
+                        span_left, span_top, span_right, span_bottom = bbox
+                        left_x = span_left if left_x is None else min(left_x, span_left)
+                        right_x = span_right if right_x is None else max(right_x, span_right)
                         top_y = span_top if top_y is None else min(top_y, span_top)
                         bottom_y = span_bottom if bottom_y is None else max(bottom_y, span_bottom)
                 if not text_parts:
@@ -121,9 +127,186 @@ class PDFStructureExtractor:
                     "page": page_num,
                     "text": "".join(text_parts).strip(),
                     "font_size": round(max_size, 1),
+                    "left": left_x,
+                    "right": right_x,
                     "top": top_y,
                     "bottom": bottom_y,
                 }
+
+    def _order_page_lines(
+        self,
+        lines: list[dict[str, Any]],
+        page_width: float,
+    ) -> list[dict[str, Any]]:
+        """Return lines in visual reading order with paragraph flow markers."""
+        if not lines:
+            return []
+        if not self.config.DETECT_COLUMNS:
+            return [dict(line, flow_region=0) for line in lines]
+
+        clusters = self._cluster_line_starts(lines, page_width)
+        columns = self._select_column_clusters(clusters)
+        if len(columns) < 2:
+            return [dict(line, flow_region=0) for line in sorted(lines, key=self._line_position)]
+
+        centers = [sum(float(line["left"]) for line in column) / len(column) for column in columns]
+        boundaries = []
+        for index in range(len(columns) - 1):
+            next_left = min(float(line["left"]) for line in columns[index + 1])
+            rights = sorted(
+                float(line.get("right") or line["left"])
+                for line in columns[index]
+                if float(line.get("right") or line["left"]) < next_left
+            )
+            right_edge = rights[(len(rights) - 1) // 2] if rights else centers[index]
+            boundaries.append((right_edge + next_left) / 2)
+        column_line_ids = {id(line) for column in columns for line in column}
+        rejected_line_ids = {
+            id(line) for cluster in clusters if cluster not in columns and len(cluster) >= 2 for line in cluster
+        }
+        column_top = min(float(line.get("top") or 0.0) for column in columns for line in column)
+        column_bottom = max(float(line.get("bottom") or 0.0) for column in columns for line in column)
+        full_width: list[dict[str, Any]] = []
+        column_lines: list[tuple[int, dict[str, Any]]] = []
+        for line in lines:
+            left = float(line.get("left") or 0.0)
+            right = float(line.get("right") or left)
+            top = float(line.get("top") or 0.0)
+            outside_columns = id(line) not in column_line_ids and (top < column_top or top > column_bottom)
+            if id(line) in rejected_line_ids or outside_columns or any(left < boundary < right for boundary in boundaries):
+                full_width.append(line)
+                continue
+            column = min(range(len(centers)), key=lambda index: abs(left - centers[index]))
+            column_lines.append((column, line))
+
+        return self._order_flow_regions(column_lines, full_width)
+
+    def _select_column_clusters(
+        self, clusters: list[list[dict[str, Any]]]
+    ) -> list[list[dict[str, Any]]]:
+        """Select dense vertical flows whose page ranges overlap."""
+        candidates = [
+            cluster
+            for index, cluster in enumerate(clusters)
+            if len(cluster) >= 2
+            and self._vertical_density(cluster) >= 0.15
+            and not self._interior_cluster_spans_right(index, cluster, clusters)
+        ]
+        return [
+            cluster
+            for cluster in candidates
+            if any(
+                other is not cluster and self._vertical_overlap(cluster, other) >= 10.0
+                for other in candidates
+            )
+        ]
+
+    @staticmethod
+    def _interior_cluster_spans_right(
+        index: int,
+        cluster: list[dict[str, Any]],
+        clusters: list[list[dict[str, Any]]],
+    ) -> bool:
+        """Identify centered blocks that cross into the next text flow."""
+        if index == 0 or index == len(clusters) - 1:
+            return False
+        rights = sorted(float(line.get("right") or line["left"]) for line in cluster)
+        typical_right = rights[(len(rights) - 1) // 2]
+        next_left = min(float(line["left"]) for line in clusters[index + 1])
+        return typical_right >= next_left
+
+    @staticmethod
+    def _vertical_density(lines: list[dict[str, Any]]) -> float:
+        """Measure how much of a cluster's vertical range contains text."""
+        top = min(float(line.get("top") or 0.0) for line in lines)
+        bottom = max(float(line.get("bottom") or top) for line in lines)
+        occupied = sum(
+            max(float(line.get("bottom") or 0.0) - float(line.get("top") or 0.0), 0.0)
+            for line in lines
+        )
+        return occupied / (bottom - top) if bottom > top else 0.0
+
+    @staticmethod
+    def _vertical_overlap(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> float:
+        """Return the shared vertical range between two candidate flows."""
+        left_top = min(float(line.get("top") or 0.0) for line in left)
+        left_bottom = max(float(line.get("bottom") or left_top) for line in left)
+        right_top = min(float(line.get("top") or 0.0) for line in right)
+        right_bottom = max(float(line.get("bottom") or right_top) for line in right)
+        return max(min(left_bottom, right_bottom) - max(left_top, right_top), 0.0)
+
+    @staticmethod
+    def _cluster_line_starts(
+        lines: list[dict[str, Any]], page_width: float
+    ) -> list[list[dict[str, Any]]]:
+        """Cluster lines by horizontal start using a page-relative gutter."""
+        positioned = [line for line in lines if line.get("left") is not None]
+        positioned.sort(key=lambda line: float(line["left"]))
+        if not positioned:
+            return []
+
+        threshold = max(page_width * 0.18, 36.0)
+        clusters = [[positioned[0]]]
+        for line in positioned[1:]:
+            previous_left = float(clusters[-1][-1]["left"])
+            if float(line["left"]) - previous_left > threshold:
+                clusters.append([line])
+            else:
+                clusters[-1].append(line)
+        return clusters
+
+    def _order_flow_regions(
+        self,
+        column_lines: list[tuple[int, dict[str, Any]]],
+        full_width: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Order column bands around full-width separator lines."""
+        ordered: list[dict[str, Any]] = []
+        remaining = list(column_lines)
+        band = 0
+        for separator_group in self._group_separator_lines(full_width):
+            separator_top = float(separator_group[0].get("top") or 0.0)
+            before: list[tuple[int, dict[str, Any]]] = []
+            after: list[tuple[int, dict[str, Any]]] = []
+            for item in remaining:
+                target = before if float(item[1].get("top") or 0.0) < separator_top else after
+                target.append(item)
+            remaining = after
+            ordered.extend(self._sort_column_band(before, band))
+            ordered.extend(dict(line, flow_region=f"separator-{band}") for line in separator_group)
+            band += 1
+        ordered.extend(self._sort_column_band(remaining, band))
+        return ordered
+
+    def _group_separator_lines(self, lines: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        """Keep adjacent full-width lines in the same paragraph flow."""
+        groups: list[list[dict[str, Any]]] = []
+        for line in sorted(lines, key=self._line_position):
+            if not groups:
+                groups.append([line])
+                continue
+            previous = groups[-1][-1]
+            gap = float(line.get("top") or 0.0) - float(previous.get("bottom") or 0.0)
+            threshold = max(float(line.get("font_size") or 10.0), 10.0) * 0.8
+            if gap > threshold:
+                groups.append([line])
+            else:
+                groups[-1].append(line)
+        return groups
+
+    def _sort_column_band(
+        self, lines: list[tuple[int, dict[str, Any]]], band: int
+    ) -> list[dict[str, Any]]:
+        """Sort one horizontal band by column and vertical position."""
+        return [
+            dict(line, flow_region=f"{band}-{column}")
+            for column, line in sorted(lines, key=lambda item: (item[0], *self._line_position(item[1])))
+        ]
+
+    @staticmethod
+    def _line_position(line: dict[str, Any]) -> tuple[float, float]:
+        """Return a stable top-left sort key for a normalized line."""
+        return float(line.get("top") or 0.0), float(line.get("left") or 0.0)
 
     def _iter_lines_ocr(self, doc: fitz.Document):
         """Yield lines from OCR for pages that have no text layer."""
@@ -131,7 +314,8 @@ class PDFStructureExtractor:
             page = doc[page_num]
             textpage = page.get_textpage_ocr(language="eng")
             blocks = page.get_text("dict", textpage=textpage).get("blocks", [])
-            yield from self._iter_lines_from_blocks(page_num, blocks)
+            lines = list(self._iter_lines_from_blocks(page_num, blocks))
+            yield from self._order_page_lines(lines, page.rect.width)
 
     def _classify_level(self, line_font_size: float, heading_levels: dict[float, str]) -> str | None:
         """Return heading level like 'H1'..'H6' if font size matches, else None."""
@@ -143,10 +327,14 @@ class PDFStructureExtractor:
         current: list[dict[str, Any]] = []
 
         prev_bottom = None
+        prev_page = None
+        prev_flow_region = None
         for ln in lines:
             if prev_bottom is None:
                 current = [ln]
                 prev_bottom = ln.get("bottom")
+                prev_page = ln.get("page")
+                prev_flow_region = ln.get("flow_region")
                 continue
 
             top = ln.get("top")
@@ -155,13 +343,16 @@ class PDFStructureExtractor:
             threshold = (font_size or 10.0) * gap_multiplier
             gap = (top - prev_bottom) if (top is not None and prev_bottom is not None) else threshold + 1
 
-            if gap is not None and gap > threshold:
+            flow_changed = ln.get("page") != prev_page or ln.get("flow_region") != prev_flow_region
+            if flow_changed or (gap is not None and gap > threshold):
                 if current:
                     paragraphs.append(current)
                 current = [ln]
             else:
                 current.append(ln)
             prev_bottom = ln.get("bottom")
+            prev_page = ln.get("page")
+            prev_flow_region = ln.get("flow_region")
 
         if current:
             paragraphs.append(current)

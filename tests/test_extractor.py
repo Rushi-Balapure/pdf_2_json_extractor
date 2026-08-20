@@ -70,6 +70,247 @@ class TestExtractTextWithStructure:
             extractor.extract_text_with_structure(str(empty_file_pdf_path))
 
 
+class TestMultiColumnOrdering:
+    """Test visual reading order for multi-column documents."""
+
+    def test_left_column_precedes_right_column(self, two_column_pdf_path: Path):
+        """Columns should be read left-to-right regardless of PDF block order."""
+        result = PDFStructureExtractor().extract_text_with_structure(str(two_column_pdf_path))
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+        text = " ".join(paragraphs)
+
+        assert text.index("LEFT-1") < text.index("LEFT-3") < text.index("RIGHT-1")
+
+    def test_columns_are_separate_paragraphs(self, two_column_pdf_path: Path):
+        """A transition between columns should force a paragraph boundary."""
+        result = PDFStructureExtractor().extract_text_with_structure(str(two_column_pdf_path))
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+
+        assert any("LEFT-1" in paragraph and "LEFT-3" in paragraph for paragraph in paragraphs)
+        assert any("RIGHT-1" in paragraph and "RIGHT-3" in paragraph for paragraph in paragraphs)
+        assert not any("LEFT-1" in paragraph and "RIGHT-1" in paragraph for paragraph in paragraphs)
+
+    @staticmethod
+    def _line(text: str, left: float, top: float, right: float | None = None) -> dict:
+        return {
+            "page": 0,
+            "text": text,
+            "font_size": 11.0,
+            "left": left,
+            "right": right if right is not None else left + 100,
+            "top": top,
+            "bottom": top + 12,
+        }
+
+    def test_single_column_is_sorted_top_to_bottom(self):
+        """Source order should not override vertical order on one-column pages."""
+        extractor = PDFStructureExtractor()
+        lines = [self._line("second", 50, 120), self._line("first", 50, 100)]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["first", "second"]
+
+    def test_indentation_does_not_create_columns(self):
+        """Overlapping indented text should remain one top-to-bottom flow."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("base-1", 50, 100, 300),
+            self._line("indent-1", 130, 120, 300),
+            self._line("base-2", 50, 140, 300),
+            self._line("indent-2", 130, 160, 300),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["base-1", "indent-1", "base-2", "indent-2"]
+
+    def test_orders_three_columns_left_to_right(self):
+        """Three detected columns should each retain top-to-bottom order."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 410, 100, 520),
+            self._line("middle-2", 230, 120, 340),
+            self._line("left-2", 50, 120, 160),
+            self._line("right-2", 410, 120, 520),
+            self._line("left-1", 50, 100, 160),
+            self._line("middle-1", 230, 100, 340),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "left-1",
+            "left-2",
+            "middle-1",
+            "middle-2",
+            "right-1",
+            "right-2",
+        ]
+
+    def test_full_width_line_separates_column_bands(self):
+        """A gutter-crossing line should retain its vertical position."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-above", 330, 100, 500),
+            self._line("left-below", 50, 220, 180),
+            self._line("separator", 50, 180, 500),
+            self._line("right-below", 330, 220, 500),
+            self._line("left-above", 50, 100, 180),
+            self._line("right-above-2", 330, 120, 500),
+            self._line("left-above-2", 50, 120, 180),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "left-above",
+            "left-above-2",
+            "right-above",
+            "right-above-2",
+            "separator",
+            "left-below",
+            "right-below",
+        ]
+
+    def test_hanging_indent_does_not_create_columns(self):
+        """Short list labels and wrapped text should remain in row order."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("label-1", 50, 100, 95),
+            self._line("continuation-1", 130, 100, 300),
+            self._line("label-2", 50, 140, 95),
+            self._line("continuation-2", 130, 140, 300),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "label-1",
+            "continuation-1",
+            "label-2",
+            "continuation-2",
+        ]
+
+    def test_margin_header_and_footer_do_not_create_a_column(self):
+        """Centered running text should surround, not disrupt, body columns."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 330, 100, 500),
+            self._line("footer", 180, 730, 420),
+            self._line("left-2", 50, 120, 220),
+            self._line("header", 180, 50, 420),
+            self._line("right-2", 330, 120, 500),
+            self._line("left-1", 50, 100, 220),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "header",
+            "left-1",
+            "left-2",
+            "right-1",
+            "right-2",
+            "footer",
+        ]
+
+    def test_narrow_columns_still_use_column_order(self):
+        """A wide gutter should distinguish narrow columns from indentation."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 330, 100, 370),
+            self._line("left-2", 50, 120, 90),
+            self._line("right-2", 330, 120, 370),
+            self._line("left-1", 50, 100, 90),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["left-1", "left-2", "right-1", "right-2"]
+
+    def test_staggered_columns_still_use_column_order(self):
+        """Columns need not share matching line baselines."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 330, 130, 500),
+            self._line("left-2", 50, 160, 220),
+            self._line("right-2", 330, 190, 500),
+            self._line("left-1", 50, 100, 220),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["left-1", "left-2", "right-1", "right-2"]
+
+    def test_centered_multiline_separator_is_not_a_column(self):
+        """A centered block between column bands should remain full-width."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-above-1", 330, 100, 500),
+            self._line("heading-2", 180, 200, 500),
+            self._line("left-below-2", 50, 300, 220),
+            self._line("right-below-1", 330, 280, 500),
+            self._line("left-above-2", 50, 120, 220),
+            self._line("heading-1", 180, 180, 500),
+            self._line("right-above-2", 330, 120, 500),
+            self._line("left-below-1", 50, 280, 220),
+            self._line("right-below-2", 330, 300, 500),
+            self._line("left-above-1", 50, 100, 220),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "left-above-1",
+            "left-above-2",
+            "right-above-1",
+            "right-above-2",
+            "heading-1",
+            "heading-2",
+            "left-below-1",
+            "left-below-2",
+            "right-below-1",
+            "right-below-2",
+        ]
+
+    def test_adjacent_full_width_lines_share_a_flow(self):
+        """A multi-line full-width block should remain one paragraph."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("left-1", 50, 180, 220),
+            self._line("full-2", 50, 120, 500),
+            self._line("right-2", 330, 200, 500),
+            self._line("full-1", 50, 100, 500),
+            self._line("left-2", 50, 200, 220),
+            self._line("right-1", 330, 180, 500),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+        paragraphs = extractor._group_paragraphs(ordered)
+
+        assert [line["text"] for line in ordered] == [
+            "full-1",
+            "full-2",
+            "left-1",
+            "left-2",
+            "right-1",
+            "right-2",
+        ]
+        assert [line["text"] for line in paragraphs[0]] == ["full-1", "full-2"]
+
+    def test_column_detection_can_be_disabled(self):
+        """Disabling detection should preserve source block order."""
+        config = Config()
+        config.DETECT_COLUMNS = False
+        extractor = PDFStructureExtractor(config)
+        lines = [self._line("right", 330, 100), self._line("left", 50, 100)]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["right", "left"]
+
+
 class TestOCRFallback:
     """Test OCR fallback behavior for scanned PDFs."""
 
@@ -159,6 +400,18 @@ class TestParagraphGrouping:
         assert len(paragraphs) == 1
         assert len(paragraphs[0]) == 1
 
+    def test_splits_at_page_boundaries(self):
+        """Coordinate resets on a new page must not merge paragraphs."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            {"page": 0, "text": "Page one", "font_size": 12.0, "top": 700, "bottom": 712},
+            {"page": 1, "text": "Page two", "font_size": 12.0, "top": 72, "bottom": 84},
+        ]
+
+        paragraphs = extractor._group_paragraphs(lines)
+
+        assert len(paragraphs) == 2
+
 
 class TestHeadingClassification:
     """Test heading level classification."""
@@ -214,6 +467,7 @@ class TestConfig:
         assert config.MAX_PAGES_FOR_FONT_ANALYSIS == 10
         assert config.MIN_HEADING_FREQUENCY == 0.001
         assert config.MAX_HEADING_LEVELS == 6
+        assert config.DETECT_COLUMNS is True
 
     def test_get_config_returns_dict(self):
         """get_config should return a dictionary representation."""
