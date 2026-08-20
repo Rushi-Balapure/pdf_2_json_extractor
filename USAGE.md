@@ -7,7 +7,7 @@
 pip install pdf_2_json_extractor
 
 # Or install from source
-git clone https://github.com/your-username/pdf_2_json_extractor.git
+git clone https://github.com/Rushi-Balapure/pdf_2_json_extractor.git
 cd pdf_2_json_extractor
 pip install -e .
 ```
@@ -42,11 +42,8 @@ pdf_2_json_extractor document.pdf
 # Save to file
 pdf_2_json_extractor document.pdf -o output.json
 
-# Compact output
+# Compact output; pretty-printed JSON is the default
 pdf_2_json_extractor document.pdf --compact
-
-# Pretty print (default)
-pdf_2_json_extractor document.pdf --pretty
 ```
 
 ## Docker Usage

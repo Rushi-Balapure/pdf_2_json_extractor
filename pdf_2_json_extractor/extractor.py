@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,12 +46,12 @@ class PDFStructureExtractor:
             config (Config, optional): Configuration object. If None, uses default config.
         """
         self.config = config or Config()
-        self.font_size_histogram = defaultdict(int)
-        self.heading_levels = {}
+        self.font_size_histogram: defaultdict[float, int] = defaultdict(int)
+        self.heading_levels: dict[float, str] = {}
 
     def analyze_font_sizes(self, doc: fitz.Document) -> tuple[dict[float, int], dict[float, str]]:
         """Analyze font sizes across the document to determine heading levels."""
-        font_histogram = defaultdict(int)
+        font_histogram: defaultdict[float, int] = defaultdict(int)
         total_chars = 0
 
         max_pages = min(len(doc), self.config.MAX_PAGES_FOR_FONT_ANALYSIS)
@@ -85,7 +86,7 @@ class PDFStructureExtractor:
 
         return font_histogram, heading_levels
 
-    def _iter_lines(self, doc: fitz.Document):
+    def _iter_lines(self, doc: fitz.Document) -> Iterator[dict[str, Any]]:
         """Yield lines with their concatenated text, max font size, and y-position bounds."""
         for page_num in range(len(doc)):
             page = doc[page_num]
@@ -93,7 +94,9 @@ class PDFStructureExtractor:
             lines = list(self._iter_lines_from_blocks(page_num, blocks))
             yield from self._order_page_lines(lines, page.rect.width)
 
-    def _iter_lines_from_blocks(self, page_num: int, blocks: list[dict[str, Any]]):
+    def _iter_lines_from_blocks(
+        self, page_num: int, blocks: list[dict[str, Any]]
+    ) -> Iterator[dict[str, Any]]:
         """Yield normalized line items from block dictionaries."""
         for block in blocks:
             lines = block.get("lines")
@@ -317,7 +320,7 @@ class PDFStructureExtractor:
         """Return a stable top-left sort key for a normalized line."""
         return float(line.get("top") or 0.0), float(line.get("left") or 0.0)
 
-    def _iter_lines_ocr(self, doc: fitz.Document):
+    def _iter_lines_ocr(self, doc: fitz.Document) -> Iterator[dict[str, Any]]:
         """Yield lines from OCR for pages that have no text layer."""
         for page_num in range(len(doc)):
             page = doc[page_num]

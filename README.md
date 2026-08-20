@@ -1,7 +1,7 @@
 # pdf_2_json_extractor
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://python.org)
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![PyPI Version](https://img.shields.io/pypi/v/pdf_2_json_extractor.svg)](https://pypi.org/project/pdf_2_json_extractor/)
 [![Coverage Status](https://coveralls.io/repos/github/Rushi-Balapure/pdf_2_json_extractor/badge.svg?branch=main)](https://coveralls.io/github/Rushi-Balapure/pdf_2_json_extractor?branch=main)
 
@@ -52,11 +52,8 @@ pdf_2_json_extractor document.pdf
 # Save to file
 pdf_2_json_extractor document.pdf -o output.json
 
-# Compact output
+# Compact output; pretty-printed JSON is the default
 pdf_2_json_extractor document.pdf --compact
-
-# Pretty print (default)
-pdf_2_json_extractor document.pdf --pretty
 ```
 
 ## JSON Output Format
@@ -135,31 +132,18 @@ except PdfToJsonError as e:
 
 ## Configuration Options
 
-You can configure pdf_2_json_extractor using environment variables:
+Configuration environment variables are read when each `Config` instance is
+created:
 
-```bash
-# Font analysis settings
-export PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS=10
-export PDF_TO_JSON_FONT_SIZE_PRECISION=0.1
-export PDF_TO_JSON_MIN_HEADING_FREQUENCY=0.001
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS` | `10` | Maximum pages sampled for heading font analysis |
+| `PDF_TO_JSON_MIN_HEADING_FREQUENCY` | `0.001` | Minimum character-frequency ratio for heading sizes |
+| `PDF_TO_JSON_MAX_HEADING_LEVELS` | `6` | Deepest generated heading level |
+| `PDF_TO_JSON_DETECT_COLUMNS` | `true` | Enable visual multi-column reading order |
+| `PDF_TO_JSON_USE_BOLD_AS_HEADING_SIGNAL` | `false` | Promote short, separated bold lines when size is inconclusive |
 
-# Text processing settings
-export PDF_TO_JSON_MIN_TEXT_LENGTH=3
-export PDF_TO_JSON_MAX_HEADING_LEVELS=6
-export PDF_TO_JSON_COMBINE_CONSECUTIVE_TEXT=True
-
-# Language support
-export PDF_TO_JSON_MULTILINGUAL_SUPPORT=True
-export PDF_TO_JSON_DEFAULT_ENCODING=utf-8
-
-# Performance settings
-export PDF_TO_JSON_PROCESS_PAGES_IN_CHUNKS=False
-export PDF_TO_JSON_CHUNK_SIZE=10
-
-# Debug settings
-export PDF_TO_JSON_DEBUG_MODE=False
-export PDF_TO_JSON_LOG_LEVEL=INFO
-```
+Boolean settings accept `1`, `true`, `yes`, or `on` as true values.
 
 ## Development
 
@@ -171,7 +155,7 @@ pip install pdf_2_json_extractor
 or
 
 ```bash
-git clone https://github.com/your-username/pdf_2_json_extractor.git
+git clone https://github.com/Rushi-Balapure/pdf_2_json_extractor.git
 cd pdf_2_json_extractor
 pip install -e .
 ```
@@ -228,6 +212,12 @@ pdf_2_json_extractor supports text extraction from PDFs containing:
 
 This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
 
+This package depends on [PyMuPDF](https://pymupdf.readthedocs.io/en/latest/about.html#license-and-copyright),
+which is separately dual-licensed under the GNU AGPL 3.0 or an Artifex
+commercial license. Users are responsible for ensuring that their use and
+distribution comply with the applicable PyMuPDF license. This notice is for
+transparency and is not legal advice.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
@@ -246,5 +236,5 @@ Published in Source Code for Biology and Medicine (2012)
 For questions, issues, or contributions:
 
 - 📧 Email: rishibalapure12@gmail.com
-- 🐛 Issues: [GitHub Issues](https://github.com/your-username/pdf_2_json_extractor/issues)
-- 📖 Documentation: [GitHub Wiki](https://github.com/your-username/pdf_2_json_extractor/wiki)
+- 🐛 Issues: [GitHub Issues](https://github.com/Rushi-Balapure/pdf_2_json_extractor/issues)
+- 📖 Documentation: [GitHub Wiki](https://github.com/Rushi-Balapure/pdf_2_json_extractor/wiki)
