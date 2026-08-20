@@ -108,6 +108,7 @@ from pdf_2_json_extractor import PDFStructureExtractor, Config
 config = Config()
 config.MAX_PAGES_FOR_FONT_ANALYSIS = 5
 config.MIN_HEADING_FREQUENCY = 0.002
+config.INCLUDE_PAGE_NUMBERS = True
 
 # Use with custom config
 extractor = PDFStructureExtractor(config)
@@ -143,6 +144,7 @@ created:
 | `PDF_TO_JSON_DETECT_COLUMNS` | `true` | Enable visual multi-column reading order |
 | `PDF_TO_JSON_USE_BOLD_AS_HEADING_SIGNAL` | `false` | Promote short, separated bold lines when size is inconclusive |
 | `PDF_TO_JSON_OCR_LANGUAGE` | `eng` | Tesseract language expression for image-only pages |
+| `PDF_TO_JSON_INCLUDE_PAGE_NUMBERS` | `false` | Emit one-based source pages for headings and paragraphs |
 
 Boolean settings accept `1`, `true`, `yes`, or `on` as true values.
 
@@ -150,6 +152,11 @@ OCR languages use Tesseract codes and may be combined with `+`, for example
 `eng+fra`. The matching Tesseract language packs must be installed locally;
 the extractor reports an error instead of silently switching languages when a
 requested pack is unavailable.
+
+Page traceability is opt-in to preserve the default output schema. When enabled,
+paragraph strings become objects such as `{"text": "Paragraph text", "page": 2}`
+and heading sections receive a `page` field. Internal page indexes are zero-based;
+all page numbers in public output are one-based.
 
 ## Development
 

@@ -418,6 +418,19 @@ class PDFStructureExtractor:
 
         return paragraphs
 
+    def _format_paragraphs(self, paragraphs: list[list[dict[str, Any]]]) -> list[str | dict[str, Any]]:
+        """Format grouped lines using the configured public output shape."""
+        formatted: list[str | dict[str, Any]] = []
+        for paragraph in paragraphs:
+            if not paragraph:
+                continue
+            text = " ".join(line["text"] for line in paragraph)
+            if self.config.INCLUDE_PAGE_NUMBERS:
+                formatted.append({"text": text, "page": int(paragraph[0].get("page") or 0) + 1})
+            else:
+                formatted.append(text)
+        return formatted
+
     def extract_text_with_structure(self, pdf_path: str) -> dict[str, Any]:
         """
         Extract text with hierarchical structure from PDF.
@@ -472,11 +485,13 @@ class PDFStructureExtractor:
                         if current_section is None:
                             current_section = {"level": "content", "title": None, "paragraphs": []}
                             sections.append(current_section)
-                        current_section["paragraphs"].extend([" ".join(p_i["text"] for p_i in para) for para in paragraphs])
+                        current_section["paragraphs"].extend(self._format_paragraphs(paragraphs))
                         buffer_non_heading = []
 
                     # Start a new heading section
                     current_section = {"level": level, "title": ln["text"], "paragraphs": []}
+                    if self.config.INCLUDE_PAGE_NUMBERS:
+                        current_section["page"] = int(ln.get("page") or 0) + 1
                     sections.append(current_section)
                 else:
                     buffer_non_heading.append(ln)
@@ -488,7 +503,7 @@ class PDFStructureExtractor:
                 if current_section is None:
                     current_section = {"level": "content", "title": None, "paragraphs": []}
                     sections.append(current_section)
-                current_section["paragraphs"].extend([" ".join(p_i["text"] for p_i in para) for para in paragraphs])
+                current_section["paragraphs"].extend(self._format_paragraphs(paragraphs))
 
             page_count = len(doc)
 

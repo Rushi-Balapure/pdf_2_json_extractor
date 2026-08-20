@@ -51,6 +51,52 @@ class TestExtractTextWithStructure:
         assert result["stats"]["page_count"] > 0
         assert result["stats"]["processing_time"] > 0
 
+    def test_page_traceability_is_disabled_by_default(self, real_pdf_path: Path):
+        """Default output should preserve paragraph strings and section shape."""
+        result = PDFStructureExtractor().extract_text_with_structure(str(real_pdf_path))
+
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+        assert paragraphs
+        assert all(isinstance(paragraph, str) for paragraph in paragraphs)
+        assert all("page" not in section for section in result["sections"])
+
+    def test_page_traceability_uses_one_based_source_pages(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Enabled output should track heading and paragraph source pages."""
+        pdf_path = tmp_path / "traceable.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+
+        config = Config()
+        config.INCLUDE_PAGE_NUMBERS = True
+        extractor = PDFStructureExtractor(config)
+        lines = [
+            {"page": 0, "text": "First", "font_size": 20.0, "top": 50.0, "bottom": 70.0},
+            {"page": 0, "text": "Page one body", "font_size": 12.0, "top": 90.0, "bottom": 102.0},
+            {"page": 1, "text": "Page two body", "font_size": 12.0, "top": 50.0, "bottom": 62.0},
+            {"page": 1, "text": "Second", "font_size": 20.0, "top": 90.0, "bottom": 110.0},
+            {"page": 1, "text": "More page two body", "font_size": 12.0, "top": 130.0, "bottom": 142.0},
+        ]
+        monkeypatch.setattr(extractor, "analyze_font_sizes", lambda doc: ({12.0: 26}, {20.0: "H1"}))
+        monkeypatch.setattr(extractor, "_extract_title", lambda doc, levels: "Traceable")
+        monkeypatch.setattr(extractor, "_iter_lines", lambda doc: iter(lines))
+
+        result = extractor.extract_text_with_structure(str(pdf_path))
+
+        assert [section["page"] for section in result["sections"]] == [1, 2]
+        assert [section["paragraphs"] for section in result["sections"]] == [
+            [
+                {"text": "Page one body", "page": 1},
+                {"text": "Page two body", "page": 2},
+            ],
+            [{"text": "More page two body", "page": 2}],
+        ]
+        assert result["stats"]["num_paragraphs"] == 3
+
     def test_file_not_found(self, nonexistent_pdf_path: Path):
         """Should raise PDFFileNotFoundError for missing files."""
         extractor = PDFStructureExtractor()
@@ -479,6 +525,13 @@ class TestParagraphGrouping:
         paragraphs = extractor._group_paragraphs([])
         assert paragraphs == []
 
+    def test_formatter_ignores_empty_paragraph_groups(self):
+        """Formatting should not expose an IndexError for an empty group."""
+        config = Config()
+        config.INCLUDE_PAGE_NUMBERS = True
+
+        assert PDFStructureExtractor(config)._format_paragraphs([[]]) == []
+
     def test_handles_single_line(self):
         """Single line should be its own paragraph."""
         extractor = PDFStructureExtractor()
@@ -805,6 +858,7 @@ class TestConfig:
         assert config.DETECT_COLUMNS is True
         assert config.USE_BOLD_AS_HEADING_SIGNAL is False
         assert config.OCR_LANGUAGE == "eng"
+        assert config.INCLUDE_PAGE_NUMBERS is False
 
     def test_ocr_language_reads_environment(self, monkeypatch: pytest.MonkeyPatch):
         """OCR language should be read when a Config instance is created."""
@@ -813,6 +867,14 @@ class TestConfig:
         config = Config()
 
         assert config.OCR_LANGUAGE == "deu+eng"
+
+    def test_page_numbers_read_environment(self, monkeypatch: pytest.MonkeyPatch):
+        """Page traceability should be configurable when Config is created."""
+        monkeypatch.setenv("PDF_TO_JSON_INCLUDE_PAGE_NUMBERS", "true")
+
+        config = Config()
+
+        assert config.INCLUDE_PAGE_NUMBERS is True
 
     def test_get_config_returns_dict(self):
         """get_config should return a dictionary representation."""

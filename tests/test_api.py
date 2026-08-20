@@ -44,6 +44,22 @@ class TestExtractPdfToDict:
             assert "paragraphs" in section
             assert isinstance(section["paragraphs"], list)
 
+    def test_environment_enables_page_traceability(
+        self, real_pdf_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The public API should honor opt-in page-aware output."""
+        monkeypatch.setenv("PDF_TO_JSON_INCLUDE_PAGE_NUMBERS", "true")
+
+        result = extract_pdf_to_dict(str(real_pdf_path))
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+        pages = [paragraph["page"] for paragraph in paragraphs]
+
+        assert paragraphs
+        assert all(set(paragraph) == {"text", "page"} for paragraph in paragraphs)
+        assert pages == sorted(pages)
+        assert min(pages) == 1
+        assert all(section["page"] >= 1 for section in result["sections"] if section["level"].startswith("H"))
+
     def test_file_not_found_raises_proper_exception(self, nonexistent_pdf_path: Path):
         """Verify we get a clear error when the file doesn't exist."""
         with pytest.raises(PDFFileNotFoundError) as exc_info:

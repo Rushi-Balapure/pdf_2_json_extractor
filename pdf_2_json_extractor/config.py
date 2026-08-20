@@ -72,6 +72,11 @@ class Config:
         default_factory=lambda: _env_str("PDF_TO_JSON_OCR_LANGUAGE", "eng")
     )
 
+    # Include one-based source page numbers in headings and paragraph objects
+    INCLUDE_PAGE_NUMBERS: bool = field(
+        default_factory=lambda: _env_bool("PDF_TO_JSON_INCLUDE_PAGE_NUMBERS", False)
+    )
+
     def get_config(self) -> dict[str, Any]:
         """Return configuration as dictionary."""
         return {
@@ -81,4 +86,5 @@ class Config:
             "detect_columns": self.DETECT_COLUMNS,
             "use_bold_as_heading_signal": self.USE_BOLD_AS_HEADING_SIGNAL,
             "ocr_language": self.OCR_LANGUAGE,
+            "include_page_numbers": self.INCLUDE_PAGE_NUMBERS,
         }

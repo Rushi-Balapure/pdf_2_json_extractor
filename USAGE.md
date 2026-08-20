@@ -80,11 +80,23 @@ from pdf_2_json_extractor import PDFStructureExtractor, Config
 config = Config()
 config.MAX_PAGES_FOR_FONT_ANALYSIS = 5
 config.MIN_HEADING_FREQUENCY = 0.002
+config.INCLUDE_PAGE_NUMBERS = True
 
 # Use with custom config
 extractor = PDFStructureExtractor(config)
 result = extractor.extract_text_with_structure("document.pdf")
 ```
+
+Page traceability is disabled by default to preserve paragraph strings. When
+`INCLUDE_PAGE_NUMBERS` is enabled, heading sections include a one-based `page`
+field and paragraphs use objects such as:
+
+```json
+{"text": "Paragraph text", "page": 2}
+```
+
+The extractor uses zero-based page indexes internally, but public output is
+always one-based.
 
 ### Error Handling
 
