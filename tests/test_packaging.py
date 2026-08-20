@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from pdf_2_json_extractor import __version__
+
 ROOT = Path(__file__).parent.parent
 
 
@@ -22,6 +24,20 @@ def test_requires_python_matches_supported_syntax():
 
     assert 'requires-python = ">=3.10"' in pyproject
     assert 'python_version = "3.10"' in pyproject
+
+
+def test_release_version_is_consistent():
+    """Runtime and package metadata should identify the same release."""
+    pyproject = _read("pyproject.toml")
+    metadata_version = re.search(r'^version = "([^"]+)"', pyproject, re.MULTILINE)
+    lock_version = re.search(
+        r'name = "pdf-2-json-extractor"\nversion = "([^"]+)"', _read("uv.lock")
+    )
+
+    assert metadata_version is not None
+    assert lock_version is not None
+    assert metadata_version.group(1) == __version__ == "1.4.0"
+    assert lock_version.group(1) == __version__
 
 
 def test_setup_py_is_removed():
