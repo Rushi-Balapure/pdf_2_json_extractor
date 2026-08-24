@@ -10,7 +10,7 @@ import pymupdf as fitz
 import pytest
 
 from pdf_2_json_extractor.config import Config
-from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError
+from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
 from pdf_2_json_extractor.extractor import PDFStructureExtractor
 
 
@@ -51,6 +51,52 @@ class TestExtractTextWithStructure:
         assert result["stats"]["page_count"] > 0
         assert result["stats"]["processing_time"] > 0
 
+    def test_page_traceability_is_disabled_by_default(self, real_pdf_path: Path):
+        """Default output should preserve paragraph strings and section shape."""
+        result = PDFStructureExtractor().extract_text_with_structure(str(real_pdf_path))
+
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+        assert paragraphs
+        assert all(isinstance(paragraph, str) for paragraph in paragraphs)
+        assert all("page" not in section for section in result["sections"])
+
+    def test_page_traceability_uses_one_based_source_pages(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Enabled output should track heading and paragraph source pages."""
+        pdf_path = tmp_path / "traceable.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+
+        config = Config()
+        config.INCLUDE_PAGE_NUMBERS = True
+        extractor = PDFStructureExtractor(config)
+        lines = [
+            {"page": 0, "text": "First", "font_size": 20.0, "top": 50.0, "bottom": 70.0},
+            {"page": 0, "text": "Page one body", "font_size": 12.0, "top": 90.0, "bottom": 102.0},
+            {"page": 1, "text": "Page two body", "font_size": 12.0, "top": 50.0, "bottom": 62.0},
+            {"page": 1, "text": "Second", "font_size": 20.0, "top": 90.0, "bottom": 110.0},
+            {"page": 1, "text": "More page two body", "font_size": 12.0, "top": 130.0, "bottom": 142.0},
+        ]
+        monkeypatch.setattr(extractor, "analyze_font_sizes", lambda doc: ({12.0: 26}, {20.0: "H1"}))
+        monkeypatch.setattr(extractor, "_extract_title", lambda doc, levels: "Traceable")
+        monkeypatch.setattr(extractor, "_iter_lines", lambda doc: iter(lines))
+
+        result = extractor.extract_text_with_structure(str(pdf_path))
+
+        assert [section["page"] for section in result["sections"]] == [1, 2]
+        assert [section["paragraphs"] for section in result["sections"]] == [
+            [
+                {"text": "Page one body", "page": 1},
+                {"text": "Page two body", "page": 2},
+            ],
+            [{"text": "More page two body", "page": 2}],
+        ]
+        assert result["stats"]["num_paragraphs"] == 3
+
     def test_file_not_found(self, nonexistent_pdf_path: Path):
         """Should raise PDFFileNotFoundError for missing files."""
         extractor = PDFStructureExtractor()
@@ -70,8 +116,451 @@ class TestExtractTextWithStructure:
             extractor.extract_text_with_structure(str(empty_file_pdf_path))
 
 
+class TestStreamingExtraction:
+    """Test incremental section assembly and PDF resource cleanup."""
+
+    @staticmethod
+    def _line(page: int, text: str, size: float, top: float, flow: int = 0) -> dict:
+        return {
+            "page": page,
+            "text": text,
+            "font_size": size,
+            "top": top,
+            "bottom": top + size,
+            "flow_region": flow,
+        }
+
+    @staticmethod
+    def _legacy_sections(extractor, lines: list[dict], heading_levels: dict[float, str]) -> list[dict]:
+        """Reproduce the pre-streaming buffer-and-group assembly algorithm."""
+        sections: list[dict] = []
+        current_section = None
+        buffered: list[dict] = []
+        previous_line = None
+        for line in lines:
+            level = extractor._classify_line(line, heading_levels, previous_line)
+            if level:
+                if buffered:
+                    if current_section is None:
+                        current_section = {"level": "content", "title": None, "paragraphs": []}
+                        sections.append(current_section)
+                    grouped = extractor._group_paragraphs(buffered)
+                    current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+                    buffered = []
+                current_section = {"level": level, "title": line["text"], "paragraphs": []}
+                if extractor.config.INCLUDE_PAGE_NUMBERS:
+                    current_section["page"] = int(line.get("page") or 0) + 1
+                sections.append(current_section)
+            else:
+                buffered.append(line)
+            previous_line = line
+        if buffered:
+            if current_section is None:
+                current_section = {"level": "content", "title": None, "paragraphs": []}
+                sections.append(current_section)
+            grouped = extractor._group_paragraphs(buffered)
+            current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+        return sections
+
+    def test_section_assembly_preserves_grouping_and_pages(self):
+        """Streaming assembly should preserve heading, gap, flow, and page boundaries."""
+        config = Config()
+        config.INCLUDE_PAGE_NUMBERS = True
+        extractor = PDFStructureExtractor(config)
+        lines = [
+            self._line(0, "First", 20.0, 40.0),
+            self._line(0, "Body one", 12.0, 80.0),
+            self._line(0, "continues", 12.0, 94.0),
+            self._line(0, "New paragraph", 12.0, 130.0),
+            self._line(1, "Next page", 12.0, 40.0),
+            self._line(1, "Second", 20.0, 80.0),
+            self._line(1, "Other flow", 12.0, 120.0, flow=1),
+        ]
+
+        heading_levels = {20.0: "H1"}
+        sections = extractor._build_sections(iter(lines), heading_levels)
+
+        assert sections == self._legacy_sections(extractor, lines, heading_levels)
+        assert sections == [
+            {
+                "level": "H1",
+                "title": "First",
+                "page": 1,
+                "paragraphs": [
+                    {"text": "Body one continues", "page": 1},
+                    {"text": "New paragraph", "page": 1},
+                    {"text": "Next page", "page": 2},
+                ],
+            },
+            {
+                "level": "H1",
+                "title": "Second",
+                "page": 2,
+                "paragraphs": [{"text": "Other flow", "page": 2}],
+            },
+        ]
+
+    def test_lines_are_classified_before_generator_advances(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Extraction should not materialize the complete line generator first."""
+        pdf_path = tmp_path / "stream.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+        extractor = PDFStructureExtractor()
+        classified = False
+        original_classify = extractor._classify_line
+
+        def observed_lines(doc):
+            yield self._line(0, "Heading", 20.0, 40.0)
+            assert classified
+            yield self._line(0, "Body", 12.0, 80.0)
+
+        def observed_classify(line, levels, previous_line=None):
+            nonlocal classified
+            classified = True
+            return original_classify(line, levels, previous_line)
+
+        monkeypatch.setattr(extractor, "analyze_font_sizes", lambda doc: ({12.0: 4}, {20.0: "H1"}))
+        monkeypatch.setattr(extractor, "_extract_title", lambda doc, levels: "Stream")
+        monkeypatch.setattr(extractor, "_iter_lines", observed_lines)
+        monkeypatch.setattr(extractor, "_classify_line", observed_classify)
+
+        result = extractor.extract_text_with_structure(str(pdf_path))
+
+        assert result["sections"][0]["title"] == "Heading"
+
+    def test_exception_path_exits_document_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The opened document context should exit when line extraction fails."""
+
+        class ContextDocument:
+            exited = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                self.exited = True
+
+            def __len__(self):
+                return 1
+
+        document = ContextDocument()
+        pdf_path = tmp_path / "context.pdf"
+        pdf_path.touch()
+        extractor = PDFStructureExtractor()
+
+        def failing_lines(doc):
+            raise RuntimeError("line failure")
+            yield
+
+        monkeypatch.setattr(fitz, "open", lambda path: document)
+        monkeypatch.setattr(extractor, "analyze_font_sizes", lambda doc: ({}, {}))
+        monkeypatch.setattr(extractor, "_extract_title", lambda doc, levels: "Context")
+        monkeypatch.setattr(extractor, "_iter_lines", failing_lines)
+
+        with pytest.raises(PDFProcessingError, match="line failure"):
+            extractor.extract_text_with_structure(str(pdf_path))
+
+        assert document.exited is True
+
+
+class TestMultiColumnOrdering:
+    """Test visual reading order for multi-column documents."""
+
+    def test_left_column_precedes_right_column(self, two_column_pdf_path: Path):
+        """Columns should be read left-to-right regardless of PDF block order."""
+        result = PDFStructureExtractor().extract_text_with_structure(str(two_column_pdf_path))
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+        text = " ".join(paragraphs)
+
+        assert text.index("LEFT-1") < text.index("LEFT-3") < text.index("RIGHT-1")
+
+    def test_columns_are_separate_paragraphs(self, two_column_pdf_path: Path):
+        """A transition between columns should force a paragraph boundary."""
+        result = PDFStructureExtractor().extract_text_with_structure(str(two_column_pdf_path))
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+
+        assert any("LEFT-1" in paragraph and "LEFT-3" in paragraph for paragraph in paragraphs)
+        assert any("RIGHT-1" in paragraph and "RIGHT-3" in paragraph for paragraph in paragraphs)
+        assert not any("LEFT-1" in paragraph and "RIGHT-1" in paragraph for paragraph in paragraphs)
+
+    @staticmethod
+    def _line(text: str, left: float, top: float, right: float | None = None) -> dict:
+        return {
+            "page": 0,
+            "text": text,
+            "font_size": 11.0,
+            "left": left,
+            "right": right if right is not None else left + 100,
+            "top": top,
+            "bottom": top + 12,
+        }
+
+    def test_single_column_is_sorted_top_to_bottom(self):
+        """Source order should not override vertical order on one-column pages."""
+        extractor = PDFStructureExtractor()
+        lines = [self._line("second", 50, 120), self._line("first", 50, 100)]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["first", "second"]
+
+    def test_indentation_does_not_create_columns(self):
+        """Overlapping indented text should remain one top-to-bottom flow."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("base-1", 50, 100, 300),
+            self._line("indent-1", 130, 120, 300),
+            self._line("base-2", 50, 140, 300),
+            self._line("indent-2", 130, 160, 300),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["base-1", "indent-1", "base-2", "indent-2"]
+
+    def test_orders_three_columns_left_to_right(self):
+        """Three detected columns should each retain top-to-bottom order."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 410, 100, 520),
+            self._line("middle-2", 230, 120, 340),
+            self._line("left-2", 50, 120, 160),
+            self._line("right-2", 410, 120, 520),
+            self._line("left-1", 50, 100, 160),
+            self._line("middle-1", 230, 100, 340),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "left-1",
+            "left-2",
+            "middle-1",
+            "middle-2",
+            "right-1",
+            "right-2",
+        ]
+
+    def test_full_width_line_separates_column_bands(self):
+        """A gutter-crossing line should retain its vertical position."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-above", 330, 100, 500),
+            self._line("left-below", 50, 220, 180),
+            self._line("separator", 50, 180, 500),
+            self._line("right-below", 330, 220, 500),
+            self._line("left-above", 50, 100, 180),
+            self._line("right-above-2", 330, 120, 500),
+            self._line("left-above-2", 50, 120, 180),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "left-above",
+            "left-above-2",
+            "right-above",
+            "right-above-2",
+            "separator",
+            "left-below",
+            "right-below",
+        ]
+
+    def test_hanging_indent_does_not_create_columns(self):
+        """Short list labels and wrapped text should remain in row order."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("label-1", 50, 100, 95),
+            self._line("continuation-1", 130, 100, 300),
+            self._line("label-2", 50, 140, 95),
+            self._line("continuation-2", 130, 140, 300),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "label-1",
+            "continuation-1",
+            "label-2",
+            "continuation-2",
+        ]
+
+    def test_margin_header_and_footer_do_not_create_a_column(self):
+        """Centered running text should surround, not disrupt, body columns."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 330, 100, 500),
+            self._line("footer", 180, 730, 420),
+            self._line("left-2", 50, 120, 220),
+            self._line("header", 180, 50, 420),
+            self._line("right-2", 330, 120, 500),
+            self._line("left-1", 50, 100, 220),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "header",
+            "left-1",
+            "left-2",
+            "right-1",
+            "right-2",
+            "footer",
+        ]
+
+    def test_narrow_columns_still_use_column_order(self):
+        """A wide gutter should distinguish narrow columns from indentation."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 330, 100, 370),
+            self._line("left-2", 50, 120, 90),
+            self._line("right-2", 330, 120, 370),
+            self._line("left-1", 50, 100, 90),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["left-1", "left-2", "right-1", "right-2"]
+
+    def test_staggered_columns_still_use_column_order(self):
+        """Columns need not share matching line baselines."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-1", 330, 130, 500),
+            self._line("left-2", 50, 160, 220),
+            self._line("right-2", 330, 190, 500),
+            self._line("left-1", 50, 100, 220),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["left-1", "left-2", "right-1", "right-2"]
+
+    def test_centered_multiline_separator_is_not_a_column(self):
+        """A centered block between column bands should remain full-width."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("right-above-1", 330, 100, 500),
+            self._line("heading-2", 180, 200, 500),
+            self._line("left-below-2", 50, 300, 220),
+            self._line("right-below-1", 330, 280, 500),
+            self._line("left-above-2", 50, 120, 220),
+            self._line("heading-1", 180, 180, 500),
+            self._line("right-above-2", 330, 120, 500),
+            self._line("left-below-1", 50, 280, 220),
+            self._line("right-below-2", 330, 300, 500),
+            self._line("left-above-1", 50, 100, 220),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == [
+            "left-above-1",
+            "left-above-2",
+            "right-above-1",
+            "right-above-2",
+            "heading-1",
+            "heading-2",
+            "left-below-1",
+            "left-below-2",
+            "right-below-1",
+            "right-below-2",
+        ]
+
+    def test_adjacent_full_width_lines_share_a_flow(self):
+        """A multi-line full-width block should remain one paragraph."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            self._line("left-1", 50, 180, 220),
+            self._line("full-2", 50, 120, 500),
+            self._line("right-2", 330, 200, 500),
+            self._line("full-1", 50, 100, 500),
+            self._line("left-2", 50, 200, 220),
+            self._line("right-1", 330, 180, 500),
+        ]
+
+        ordered = extractor._order_page_lines(lines, 600)
+        paragraphs = extractor._group_paragraphs(ordered)
+
+        assert [line["text"] for line in ordered] == [
+            "full-1",
+            "full-2",
+            "left-1",
+            "left-2",
+            "right-1",
+            "right-2",
+        ]
+        assert [line["text"] for line in paragraphs[0]] == ["full-1", "full-2"]
+
+    def test_column_detection_can_be_disabled(self):
+        """Disabling detection should preserve source block order."""
+        config = Config()
+        config.DETECT_COLUMNS = False
+        extractor = PDFStructureExtractor(config)
+        lines = [self._line("right", 330, 100), self._line("left", 50, 100)]
+
+        ordered = extractor._order_page_lines(lines, 600)
+
+        assert [line["text"] for line in ordered] == ["right", "left"]
+
+
 class TestOCRFallback:
     """Test OCR fallback behavior for scanned PDFs."""
+
+    @staticmethod
+    def _blocks(text: str) -> list[dict]:
+        return [
+            {
+                "lines": [
+                    {
+                        "spans": [
+                            {
+                                "text": text,
+                                "size": 12.0,
+                                "flags": 0,
+                                "bbox": (50.0, 100.0, 200.0, 112.0),
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+
+    class FakePage:
+        rect = fitz.Rect(0, 0, 600, 800)
+
+        def __init__(self, native_text: str | None, ocr_text: str = "OCR text") -> None:
+            self.native_text = native_text
+            self.ocr_text = ocr_text
+            self.ocr_languages: list[str] = []
+            self.textpage = object()
+
+        def get_text(self, output: str, textpage: object | None = None) -> dict:
+            assert output == "dict"
+            if textpage is self.textpage:
+                return {"blocks": TestOCRFallback._blocks(self.ocr_text)}
+            blocks = TestOCRFallback._blocks(self.native_text) if self.native_text else []
+            return {"blocks": blocks}
+
+        def get_textpage_ocr(self, language: str) -> object:
+            self.ocr_languages.append(language)
+            return self.textpage
+
+    class FakeDocument:
+        def __init__(self, pages: list["TestOCRFallback.FakePage"]) -> None:
+            self.pages = pages
+
+        def __len__(self) -> int:
+            return len(self.pages)
+
+        def __getitem__(self, index: int) -> "TestOCRFallback.FakePage":
+            return self.pages[index]
 
     def test_uses_ocr_for_scanned_pdf(self, scanned_pdf_path: Path):
         """Scanned image-only PDFs should still produce extracted content."""
@@ -81,6 +570,46 @@ class TestOCRFallback:
 
         assert result["stats"]["num_paragraphs"] > 0
         assert len(result["sections"]) > 0
+
+    def test_ocr_language_is_forwarded(self):
+        """Configured Tesseract language expressions should pass through unchanged."""
+        config = Config()
+        config.OCR_LANGUAGE = "eng+fra"
+        extractor = PDFStructureExtractor(config)
+        page = self.FakePage(native_text=None)
+
+        lines = list(extractor._iter_lines_ocr(self.FakeDocument([page])))
+
+        assert lines[0]["text"] == "OCR text"
+        assert page.ocr_languages == ["eng+fra"]
+
+    def test_uses_ocr_only_for_pages_without_native_text(self):
+        """Mixed documents should retain native text and OCR scanned pages."""
+        extractor = PDFStructureExtractor()
+        native_page = self.FakePage(native_text="Native text")
+        scanned_page = self.FakePage(native_text=None, ocr_text="Scanned text")
+
+        lines = list(extractor._iter_lines(self.FakeDocument([native_page, scanned_page])))
+
+        assert [line["text"] for line in lines] == ["Native text", "Scanned text"]
+        assert native_page.ocr_languages == []
+        assert scanned_page.ocr_languages == ["eng"]
+
+    def test_reports_ocr_language_failures(self):
+        """Unavailable language packs should produce an actionable package error."""
+
+        class FailingPage(self.FakePage):
+            def get_textpage_ocr(self, language: str) -> object:
+                raise RuntimeError("language data not found")
+
+        config = Config()
+        config.OCR_LANGUAGE = "fra"
+        extractor = PDFStructureExtractor(config)
+        native_page = self.FakePage(native_text="Native text")
+        failing_page = FailingPage(native_text=None)
+
+        with pytest.raises(PDFProcessingError, match="page 2.*fra"):
+            list(extractor._iter_lines(self.FakeDocument([native_page, failing_page])))
 
 
 class TestFontAnalysis:
@@ -149,6 +678,13 @@ class TestParagraphGrouping:
         paragraphs = extractor._group_paragraphs([])
         assert paragraphs == []
 
+    def test_formatter_ignores_empty_paragraph_groups(self):
+        """Formatting should not expose an IndexError for an empty group."""
+        config = Config()
+        config.INCLUDE_PAGE_NUMBERS = True
+
+        assert PDFStructureExtractor(config)._format_paragraphs([[]]) == []
+
     def test_handles_single_line(self):
         """Single line should be its own paragraph."""
         extractor = PDFStructureExtractor()
@@ -158,6 +694,18 @@ class TestParagraphGrouping:
 
         assert len(paragraphs) == 1
         assert len(paragraphs[0]) == 1
+
+    def test_splits_at_page_boundaries(self):
+        """Coordinate resets on a new page must not merge paragraphs."""
+        extractor = PDFStructureExtractor()
+        lines = [
+            {"page": 0, "text": "Page one", "font_size": 12.0, "top": 700, "bottom": 712},
+            {"page": 1, "text": "Page two", "font_size": 12.0, "top": 72, "bottom": 84},
+        ]
+
+        paragraphs = extractor._group_paragraphs(lines)
+
+        assert len(paragraphs) == 2
 
 
 class TestHeadingClassification:
@@ -189,6 +737,95 @@ class TestHeadingClassification:
         assert extractor._classify_level(16.04, heading_levels) == "H1"
 
 
+class TestBoldHeadingSignal:
+    """Test opt-in font-weight heading classification."""
+
+    @staticmethod
+    def _line(text: str = "Overview") -> dict:
+        return {
+            "text": text,
+            "font_size": 12.0,
+            "is_bold": True,
+            "bold_ratio": 1.0,
+            "page": 0,
+            "flow_region": 0,
+            "top": 100.0,
+            "bottom": 112.0,
+        }
+
+    @staticmethod
+    def _previous_line() -> dict:
+        return {"page": 0, "flow_region": 0, "top": 70.0, "bottom": 82.0}
+
+    def test_bold_body_text_promoted_when_enabled(self):
+        """A short separated bold line should become the next heading level."""
+        config = Config()
+        config.USE_BOLD_AS_HEADING_SIGNAL = True
+        extractor = PDFStructureExtractor(config)
+
+        level = extractor._classify_line(self._line(), {18.0: "H1"}, self._previous_line())
+
+        assert level == "H2"
+
+    def test_bold_body_text_unchanged_when_disabled(self):
+        """Bold body-sized text should remain content by default."""
+        extractor = PDFStructureExtractor()
+
+        level = extractor._classify_line(self._line(), {18.0: "H1"}, self._previous_line())
+
+        assert level is None
+
+    def test_long_bold_sentence_is_not_promoted(self):
+        """Bold paragraphs should not be mistaken for headings."""
+        config = Config()
+        config.USE_BOLD_AS_HEADING_SIGNAL = True
+        extractor = PDFStructureExtractor(config)
+        text = "This is a long bold sentence that should remain ordinary paragraph content because it reads like prose."
+
+        level = extractor._classify_line(self._line(text), {}, self._previous_line())
+
+        assert level is None
+
+    def test_column_transition_does_not_count_as_heading_spacing(self):
+        """The first bold line in another column still needs a visual gap."""
+        config = Config()
+        config.USE_BOLD_AS_HEADING_SIGNAL = True
+        extractor = PDFStructureExtractor(config)
+        line = self._line()
+        line.update({"flow_region": "0-1", "top": 100.0})
+        previous = self._previous_line()
+        previous.update({"flow_region": "0-0", "bottom": 112.0})
+
+        level = extractor._classify_line(line, {}, previous)
+
+        assert level is None
+
+    def test_bold_flags_are_retained_on_normalized_lines(self):
+        """PyMuPDF span flags should be reflected in normalized line style."""
+        extractor = PDFStructureExtractor()
+        blocks = [
+            {
+                "lines": [
+                    {
+                        "spans": [
+                            {
+                                "text": "Bold heading",
+                                "size": 12.0,
+                                "flags": fitz.TEXT_FONT_BOLD,
+                                "bbox": (50.0, 100.0, 130.0, 112.0),
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+
+        line = list(extractor._iter_lines_from_blocks(0, blocks))[0]
+
+        assert line["is_bold"] is True
+        assert line["bold_ratio"] == 1.0
+
+
 class TestTitleExtraction:
     """Test title extraction from documents."""
 
@@ -203,6 +840,163 @@ class TestTitleExtraction:
         assert len(title) > 0
         assert title != "Untitled Document"
 
+    def test_prefers_pdf_metadata_title(self):
+        """Valid PDF metadata should beat larger decorative page text."""
+        extractor = PDFStructureExtractor()
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 100), "DECORATION", fontsize=36)
+        doc.set_metadata({"title": "My Real Title"})
+
+        title = extractor._extract_title(doc, {})
+        doc.close()
+
+        assert title == "My Real Title"
+
+    def test_ignores_margin_numeral_without_metadata(self):
+        """A large decorative numeral should not replace a plausible title."""
+        extractor = PDFStructureExtractor()
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((20, 40), "7", fontsize=36)
+        page.insert_text((72, 120), "A Practical PDF Title", fontsize=24)
+
+        title = extractor._extract_title(doc, {})
+        doc.close()
+
+        assert title == "A Practical PDF Title"
+
+    def test_combines_all_spans_in_title_line(self):
+        """Visual title selection should return the complete line text."""
+        extractor = PDFStructureExtractor()
+
+        class FakePage:
+            rect = fitz.Rect(0, 0, 600, 800)
+
+            def get_text(self, output: str) -> dict:
+                assert output == "dict"
+                return {
+                    "blocks": [
+                        {
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {"text": "Structured ", "size": 24, "bbox": (72, 100, 180, 126)},
+                                        {"text": "PDF Title", "size": 24, "bbox": (180, 100, 290, 126)},
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+
+        class FakeDocument:
+            metadata: dict[str, str] = {}
+
+            def __len__(self) -> int:
+                return 1
+
+            def __getitem__(self, index: int) -> FakePage:
+                assert index == 0
+                return FakePage()
+
+        title = extractor._extract_title(FakeDocument(), {})
+
+        assert title == "Structured PDF Title"
+
+    def test_font_prominence_outweighs_wide_body_text(self):
+        """A wide body line should not outscore a modestly larger title."""
+
+        class FakePage:
+            rect = fitz.Rect(0, 0, 600, 800)
+
+            def get_text(self, output: str) -> dict:
+                assert output == "dict"
+                return {
+                    "blocks": [
+                        {
+                            "lines": [
+                                {"spans": [{"text": "Short Title", "size": 14, "bbox": (72, 80, 150, 98)}]},
+                                {
+                                    "spans": [
+                                        {
+                                            "text": "A long body sentence extending across nearly the full available page width.",
+                                            "size": 12,
+                                            "bbox": (50, 130, 550, 145),
+                                        }
+                                    ]
+                                },
+                            ]
+                        }
+                    ]
+                }
+
+        class FakeDocument:
+            metadata: dict[str, str] = {}
+
+            def __len__(self) -> int:
+                return 1
+
+            def __getitem__(self, index: int) -> FakePage:
+                assert index == 0
+                return FakePage()
+
+        title = PDFStructureExtractor()._extract_title(FakeDocument(), {})
+
+        assert title == "Short Title"
+
+    def test_one_point_font_difference_outweighs_body_width(self):
+        """Even a modestly larger title font should remain the primary signal."""
+
+        class FakePage:
+            rect = fitz.Rect(0, 0, 600, 800)
+
+            def get_text(self, output: str) -> dict:
+                assert output == "dict"
+                return {
+                    "blocks": [
+                        {
+                            "lines": [
+                                {"spans": [{"text": "Brief Title", "size": 13, "bbox": (72, 200, 110, 216)}]},
+                                {
+                                    "spans": [
+                                        {
+                                            "text": "A long body sentence extending across nearly the full available page width.",
+                                            "size": 12,
+                                            "bbox": (50, 240, 550, 255),
+                                        }
+                                    ]
+                                },
+                            ]
+                        }
+                    ]
+                }
+
+        class FakeDocument:
+            metadata: dict[str, str] = {}
+
+            def __len__(self) -> int:
+                return 1
+
+            def __getitem__(self, index: int) -> FakePage:
+                assert index == 0
+                return FakePage()
+
+        assert PDFStructureExtractor()._extract_title(FakeDocument(), {}) == "Brief Title"
+
+    def test_top_edge_text_can_be_a_real_title(self):
+        """Non-decorative title text near the page top should remain eligible."""
+        extractor = PDFStructureExtractor()
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 22), "Top Edge Title", fontsize=20)
+        page.insert_text((72, 100), "Ordinary body content across the page", fontsize=12)
+
+        title = extractor._extract_title(doc, {})
+        doc.close()
+
+        assert title == "Top Edge Title"
+
 
 class TestConfig:
     """Test Config class."""
@@ -214,6 +1008,26 @@ class TestConfig:
         assert config.MAX_PAGES_FOR_FONT_ANALYSIS == 10
         assert config.MIN_HEADING_FREQUENCY == 0.001
         assert config.MAX_HEADING_LEVELS == 6
+        assert config.DETECT_COLUMNS is True
+        assert config.USE_BOLD_AS_HEADING_SIGNAL is False
+        assert config.OCR_LANGUAGE == "eng"
+        assert config.INCLUDE_PAGE_NUMBERS is False
+
+    def test_ocr_language_reads_environment(self, monkeypatch: pytest.MonkeyPatch):
+        """OCR language should be read when a Config instance is created."""
+        monkeypatch.setenv("PDF_TO_JSON_OCR_LANGUAGE", "deu+eng")
+
+        config = Config()
+
+        assert config.OCR_LANGUAGE == "deu+eng"
+
+    def test_page_numbers_read_environment(self, monkeypatch: pytest.MonkeyPatch):
+        """Page traceability should be configurable when Config is created."""
+        monkeypatch.setenv("PDF_TO_JSON_INCLUDE_PAGE_NUMBERS", "true")
+
+        config = Config()
+
+        assert config.INCLUDE_PAGE_NUMBERS is True
 
     def test_get_config_returns_dict(self):
         """get_config should return a dictionary representation."""

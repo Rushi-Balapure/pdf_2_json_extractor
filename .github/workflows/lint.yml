@@ -22,12 +22,6 @@ jobs:
           python-version: "3.13"
           cache: 'pip'
       
-      - name: Verify freethreaded Python
-        if: endsWith(matrix.python-version, 't')
-        run: |
-          python --version --version
-          python -c "import sys; print('Free-threading enabled:', not sys._is_gil_enabled() if hasattr(sys, '_is_gil_enabled') else False)"
-
       - run: |
           python -m pip install --upgrade pip
           pip install ruff
@@ -36,3 +30,24 @@ jobs:
         run: |
           ruff check pdf_2_json_extractor
           ruff check tests
+
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.7
+
+      - name: Set up Python
+        uses: actions/setup-python@v5.2.0
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install package and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run mypy
+        run: mypy pdf_2_json_extractor

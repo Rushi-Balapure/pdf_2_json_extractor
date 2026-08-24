@@ -7,11 +7,11 @@ This repository is a Python package named `pdf_2_json_extractor`. It extracts st
 - `pdf_2_json_extractor/__init__.py`
   - Public package API.
   - Exposes `extract_pdf_to_dict(pdf_path)` and `extract_pdf_to_json(pdf_path, output_path=None)`.
-  - Version is currently `1.3.1`.
+  - Version is currently `1.4.0`.
 - `pdf_2_json_extractor/cli.py`
   - CLI entry point for the `pdf_2_json_extractor` console script.
   - Also runnable as `python -m pdf_2_json_extractor.cli`.
-  - Supports PDF path, `-o/--output`, `--compact`, and `--version`.
+  - Supports one or more PDF or directory paths, `-o/--output`, `--compact`, and `--version`.
 - `pdf_2_json_extractor/extractor.py`
   - Core extraction logic.
   - `PDFStructureExtractor.extract_text_with_structure()` validates the PDF, analyzes font sizes, extracts a title, creates sections, groups paragraphs, and returns the JSON-ready dictionary.
@@ -72,7 +72,7 @@ pip install -e ".[dev]"
 
 ## Code Style Notes
 
-- The package uses Python 3.8+ metadata, but the code already uses modern type syntax like `str | None` and `dict[str, Any]`.
+- The package requires Python 3.10+ and uses modern type syntax like `str | None` and `dict[str, Any]`.
 - `ruff` config lives in `pyproject.toml`.
 - Existing line length is 120.
 - Keep changes small and compatible with the current API shape unless the task explicitly asks for a larger refactor.
@@ -80,11 +80,6 @@ pip install -e ".[dev]"
 
 ## Known Project Quirks
 
-- `README.md`, `pyproject.toml`, and `setup.py` still contain placeholder GitHub URLs using `your-username`.
-- `README.md` documents several configuration environment variables that are not currently implemented in `Config`; only these are active:
-  - `PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS`
-  - `PDF_TO_JSON_MIN_HEADING_FREQUENCY`
-  - `PDF_TO_JSON_MAX_HEADING_LEVELS`
 - `tests/conftest.py` contains a casual phrase in a docstring; avoid broad cleanup unless asked.
 - `.codex` currently exists as an empty read-only file, not a directory.
 

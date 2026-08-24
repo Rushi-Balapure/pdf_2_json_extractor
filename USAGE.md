@@ -7,7 +7,7 @@
 pip install pdf_2_json_extractor
 
 # Or install from source
-git clone https://github.com/your-username/pdf_2_json_extractor.git
+git clone https://github.com/Rushi-Balapure/pdf_2_json_extractor.git
 cd pdf_2_json_extractor
 pip install -e .
 ```
@@ -42,11 +42,14 @@ pdf_2_json_extractor document.pdf
 # Save to file
 pdf_2_json_extractor document.pdf -o output.json
 
-# Compact output
+# Compact output; pretty-printed JSON is the default
 pdf_2_json_extractor document.pdf --compact
 
-# Pretty print (default)
-pdf_2_json_extractor document.pdf --pretty
+# Process multiple files into an output directory
+pdf_2_json_extractor first.pdf second.pdf -o output/
+
+# Process all PDFs directly inside a directory
+pdf_2_json_extractor pdfs/ -o output/
 ```
 
 ## Docker Usage
@@ -65,12 +68,18 @@ docker run --rm -v $(pwd)/pdfs:/pdfs pdf_2_json_extractor:latest /pdfs/document.
 ## Batch Processing
 
 ```bash
-# Process all PDFs in a directory
-for pdf in pdfs/*.pdf; do
-    echo "Processing: $pdf"
-    pdf_2_json_extractor "$pdf" -o "output/$(basename "$pdf" .pdf).json"
-done
+# Process all top-level PDFs in a directory
+pdf_2_json_extractor pdfs/ -o output/
+
+# Process selected PDFs
+pdf_2_json_extractor pdfs/one.pdf pdfs/two.pdf -o output/
 ```
+
+Batch scans are non-recursive and case-insensitive for `.pdf` extensions.
+Directory symlinks are rejected. Inputs run in deterministic sorted order, with
+per-file status on stderr. Processing continues after individual failures and
+returns exit status 1 if any file fails. Duplicate stems are rejected because
+they would map to the same output filename.
 
 ## Advanced Usage
 
@@ -83,11 +92,23 @@ from pdf_2_json_extractor import PDFStructureExtractor, Config
 config = Config()
 config.MAX_PAGES_FOR_FONT_ANALYSIS = 5
 config.MIN_HEADING_FREQUENCY = 0.002
+config.INCLUDE_PAGE_NUMBERS = True
 
 # Use with custom config
 extractor = PDFStructureExtractor(config)
 result = extractor.extract_text_with_structure("document.pdf")
 ```
+
+Page traceability is disabled by default to preserve paragraph strings. When
+`INCLUDE_PAGE_NUMBERS` is enabled, heading sections include a one-based `page`
+field and paragraphs use objects such as:
+
+```json
+{"text": "Paragraph text", "page": 2}
+```
+
+The extractor uses zero-based page indexes internally, but public output is
+always one-based.
 
 ### Error Handling
 

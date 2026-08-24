@@ -68,6 +68,29 @@ def scanned_pdf_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def two_column_pdf_path(tmp_path: Path) -> Path:
+    """Create a PDF whose insertion order conflicts with visual reading order."""
+    pdf_path = tmp_path / "two_columns.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+
+    page.insert_text((72, 60), "COLUMN READING ORDER", fontsize=18)
+    page.insert_textbox(
+        fitz.Rect(330, 100, 550, 300),
+        "RIGHT-1 first right line\nRIGHT-2 second right line\nRIGHT-3 third right line",
+        fontsize=11,
+    )
+    page.insert_textbox(
+        fitz.Rect(50, 100, 270, 300),
+        "LEFT-1 first left line\nLEFT-2 second left line\nLEFT-3 third left line",
+        fontsize=11,
+    )
+    doc.save(str(pdf_path))
+    doc.close()
+    return pdf_path
+
+
+@pytest.fixture
 def nonexistent_pdf_path(tmp_path: Path) -> Path:
     """Return a path to a PDF file that definitely does not exist."""
     return tmp_path / "this_file_does_not_exist.pdf"
