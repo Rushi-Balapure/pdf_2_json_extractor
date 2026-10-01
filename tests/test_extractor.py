@@ -329,6 +329,28 @@ class TestStreamingExtraction:
 
         assert counts == {0: 1, 1: 1}
 
+    def test_reused_extractor_does_not_keep_another_document_pages(self, tmp_path: Path):
+        """A prior font-analysis pass must not leak text into the next extract."""
+        first_path = tmp_path / "first.pdf"
+        second_path = tmp_path / "second.pdf"
+        for path, text in ((first_path, "ALPHA UNIQUE"), (second_path, "BETA UNIQUE")):
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text((72, 72), text, fontsize=14)
+            doc.save(path)
+            doc.close()
+
+        extractor = PDFStructureExtractor()
+        with fitz.open(first_path) as first_doc:
+            extractor.analyze_font_sizes(first_doc)
+
+        result = extractor.extract_text_with_structure(str(second_path))
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+        text = " ".join(str(paragraph) for paragraph in paragraphs)
+
+        assert "BETA UNIQUE" in text
+        assert "ALPHA UNIQUE" not in text
+
 
 class TestMultiColumnOrdering:
     """Test visual reading order for multi-column documents."""

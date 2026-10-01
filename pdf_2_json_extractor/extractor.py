@@ -33,7 +33,7 @@ class PDFStructureExtractor:
         self.config = config or Config()
         self.font_size_histogram: defaultdict[float, int] = defaultdict(int)
         self.heading_levels: dict[float, str] = {}
-        self._page_text_cache: dict[int, dict[str, Any]] = {}
+        self._page_text_cache: dict[tuple[int, int], dict[str, Any]] = {}
 
     def analyze_font_sizes(self, doc: fitz.Document) -> tuple[dict[float, int], dict[float, str]]:
         """Analyze font sizes across the document to determine heading levels."""
@@ -73,12 +73,14 @@ class PDFStructureExtractor:
         return font_histogram, heading_levels
 
     def _page_text_dict(self, page: fitz.Page, page_num: int) -> dict[str, Any]:
-        """Return cached native text blocks for one page."""
-        cached = self._page_text_cache.get(page_num)
+        """Return cached native text blocks for one page of the current document."""
+        document = getattr(page, "parent", None)
+        cache_key = (id(document) if document is not None else id(page), page_num)
+        cached = self._page_text_cache.get(cache_key)
         if cached is not None:
             return cached
         text_dict = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
-        self._page_text_cache[page_num] = text_dict
+        self._page_text_cache[cache_key] = text_dict
         return text_dict
 
     def _iter_lines(self, doc: fitz.Document) -> Iterator[dict[str, Any]]:
@@ -497,6 +499,7 @@ class PDFStructureExtractor:
         """
         start_time = time.time()
         self.config.validate()
+        self._page_text_cache.clear()
 
         if not os.path.exists(pdf_path):
             raise PDFFileNotFoundError(f"PDF file not found: {pdf_path}")

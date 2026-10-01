@@ -70,13 +70,18 @@ def write_text_atomically(output_path: str | os.PathLike[str], content: str) -> 
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(prefix=".pdf2json-", suffix=".tmp", dir=destination.parent)
+    published = False
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
+        mask = os.umask(0)
+        os.umask(mask)
+        os.chmod(temporary_name, 0o666 & ~mask)
         os.replace(temporary_name, destination)
-    except Exception:
-        Path(temporary_name).unlink(missing_ok=True)
-        raise
+        published = True
+    finally:
+        if not published:
+            Path(temporary_name).unlink(missing_ok=True)
 
 
 def extract_pdf_to_dict(pdf_path: str) -> dict[str, Any]:
