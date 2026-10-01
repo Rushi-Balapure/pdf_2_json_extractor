@@ -13,15 +13,18 @@ Features:
 - Offline operation with no internet required
 """
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 __author__ = "Rushi Balapure"
 __email__ = "rishibalapure12@gmail.com"
 
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError, PdfToJsonError
+from .exceptions import ConfigError, InvalidPDFError, PDFFileNotFoundError, PDFProcessingError, PdfToJsonError
 from .extractor import PDFStructureExtractor
 
 __all__ = [
@@ -31,6 +34,7 @@ __all__ = [
     "PDFProcessingError",
     "PDFFileNotFoundError",
     "InvalidPDFError",
+    "ConfigError",
     "extract_pdf_to_json",
     "extract_pdf_to_dict",
 ]
@@ -56,10 +60,28 @@ def extract_pdf_to_json(pdf_path: str, output_path: str | None = None) -> str:
     json_str = json.dumps(result, ensure_ascii=False, indent=2)
 
     if output_path:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(json_str)
+        write_text_atomically(output_path, json_str)
         return output_path
     return json_str
+
+
+def write_text_atomically(output_path: str | os.PathLike[str], content: str) -> None:
+    """Write UTF-8 text by replacing the destination only after the temp file is complete."""
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=".pdf2json-", suffix=".tmp", dir=destination.parent)
+    published = False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        mask = os.umask(0)
+        os.umask(mask)
+        os.chmod(temporary_name, 0o666 & ~mask)
+        os.replace(temporary_name, destination)
+        published = True
+    finally:
+        if not published:
+            Path(temporary_name).unlink(missing_ok=True)
 
 
 def extract_pdf_to_dict(pdf_path: str) -> dict[str, Any]:

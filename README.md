@@ -150,15 +150,16 @@ created:
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS` | `10` | Maximum pages sampled for heading font analysis |
-| `PDF_TO_JSON_MIN_HEADING_FREQUENCY` | `0.001` | Minimum character-frequency ratio for heading sizes |
-| `PDF_TO_JSON_MAX_HEADING_LEVELS` | `6` | Deepest generated heading level |
+| `PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS` | `10` | Maximum pages sampled for heading font analysis (`>= 1`) |
+| `PDF_TO_JSON_MIN_HEADING_FREQUENCY` | `0.001` | Minimum character-frequency ratio for heading sizes (`0` to `1`) |
+| `PDF_TO_JSON_MAX_HEADING_LEVELS` | `6` | Deepest generated heading level (`1` to `6`) |
 | `PDF_TO_JSON_DETECT_COLUMNS` | `true` | Enable visual multi-column reading order |
 | `PDF_TO_JSON_USE_BOLD_AS_HEADING_SIGNAL` | `false` | Promote short, separated bold lines when size is inconclusive |
 | `PDF_TO_JSON_OCR_LANGUAGE` | `eng` | Tesseract language expression for image-only pages |
 | `PDF_TO_JSON_INCLUDE_PAGE_NUMBERS` | `false` | Emit one-based source pages for headings and paragraphs |
 
 Boolean settings accept `1`, `true`, `yes`, or `on` as true values.
+Invalid numeric values raise `ConfigError` and name the environment variable.
 
 OCR languages use Tesseract codes and may be combined with `+`, for example
 `eng+fra`. The matching Tesseract language packs must be installed locally;

@@ -36,7 +36,7 @@ def test_release_version_is_consistent():
 
     assert metadata_version is not None
     assert lock_version is not None
-    assert metadata_version.group(1) == __version__ == "1.4.0"
+    assert metadata_version.group(1) == __version__ == "1.5.0"
     assert lock_version.group(1) == __version__
 
 

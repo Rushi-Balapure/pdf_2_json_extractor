@@ -7,30 +7,15 @@ import os
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from typing import Any
 
 import pymupdf as fitz  # PyMuPDF
 
 from .config import Config
-from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
+from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError, PdfToJsonError
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class FontInfo:
-    """Font information for text spans."""
-    size: float
-    name: str
-    flags: int
-
-@dataclass
-class TextSpan:
-    """Text span with font and layout information."""
-    text: str
-    font_info: FontInfo
-    bbox: tuple
-    level: str | None = None
 
 class PDFStructureExtractor:
     """
@@ -46,8 +31,9 @@ class PDFStructureExtractor:
             config (Config, optional): Configuration object. If None, uses default config.
         """
         self.config = config or Config()
-        self.font_size_histogram: defaultdict[float, int] = defaultdict(int)
+        self.font_size_histogram: dict[float, int] = {}
         self.heading_levels: dict[float, str] = {}
+        self._page_text_cache: dict[tuple[int, int], dict[str, Any]] = {}
 
     def analyze_font_sizes(self, doc: fitz.Document) -> tuple[dict[float, int], dict[float, str]]:
         """Analyze font sizes across the document to determine heading levels."""
@@ -57,7 +43,7 @@ class PDFStructureExtractor:
         max_pages = min(len(doc), self.config.MAX_PAGES_FOR_FONT_ANALYSIS)
 
         for page_num in range(max_pages):
-            blocks = doc[page_num].get_text("dict").get("blocks", [])
+            blocks = self._page_text_dict(doc[page_num], page_num).get("blocks", [])
             for block in blocks:
                 lines = block.get("lines")
                 if not lines:
@@ -86,11 +72,23 @@ class PDFStructureExtractor:
 
         return font_histogram, heading_levels
 
+    def _page_text_dict(self, page: fitz.Page, page_num: int) -> dict[str, Any]:
+        """Return cached native text blocks for one page of the current document."""
+        document = getattr(page, "parent", None)
+        cache_key = (id(document) if document is not None else id(page), page_num)
+        cached = self._page_text_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        extracted = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+        text_dict: dict[str, Any] = extracted if isinstance(extracted, dict) else {}
+        self._page_text_cache[cache_key] = text_dict
+        return text_dict
+
     def _iter_lines(self, doc: fitz.Document) -> Iterator[dict[str, Any]]:
         """Yield lines with their concatenated text, max font size, and y-position bounds."""
         for page_num in range(len(doc)):
             page = doc[page_num]
-            blocks = page.get_text("dict").get("blocks", [])
+            blocks = self._page_text_dict(page, page_num).get("blocks", [])
             lines = list(self._iter_lines_from_blocks(page_num, blocks))
             if not lines:
                 lines = list(self._iter_page_ocr(page_num, page))
@@ -422,12 +420,26 @@ class PDFStructureExtractor:
         for paragraph in paragraphs:
             if not paragraph:
                 continue
-            text = " ".join(line["text"] for line in paragraph)
+            text = self._join_paragraph_text(paragraph)
             if self.config.INCLUDE_PAGE_NUMBERS:
                 formatted.append({"text": text, "page": int(paragraph[0].get("page") or 0) + 1})
             else:
                 formatted.append(text)
         return formatted
+
+    @staticmethod
+    def _join_paragraph_text(paragraph: list[dict[str, Any]]) -> str:
+        """Join paragraph lines, collapsing a trailing soft hyphen into the next word."""
+        joined = ""
+        for line in paragraph:
+            text = str(line["text"])
+            if not joined:
+                joined = text
+            elif joined.endswith("\u00ad"):
+                joined = joined[:-1] + text
+            else:
+                joined = f"{joined} {text}"
+        return joined
 
     def _append_paragraph(
         self,
@@ -487,6 +499,8 @@ class PDFStructureExtractor:
             PDFProcessingError: If processing fails
         """
         start_time = time.time()
+        self.config.validate()
+        self._page_text_cache.clear()
 
         if not os.path.exists(pdf_path):
             raise PDFFileNotFoundError(f"PDF file not found: {pdf_path}")
@@ -496,17 +510,23 @@ class PDFStructureExtractor:
                 return self._extract_document(doc, start_time)
         except fitz.FileDataError as e:
             raise InvalidPDFError(f"Invalid or corrupted PDF file: {e}")
-        except PDFProcessingError:
+        except PdfToJsonError:
             raise
         except Exception as e:
             logger.error(f"Error processing PDF: {e}")
             raise PDFProcessingError(f"Failed to process PDF: {e}")
+        finally:
+            self._page_text_cache.clear()
 
     def _extract_document(self, doc: fitz.Document, start_time: float) -> dict[str, Any]:
         """Extract one open document and return the public result dictionary."""
+        if getattr(doc, "needs_pass", False):
+            raise PDFProcessingError("PDF is password-protected and cannot be extracted without a password")
         if len(doc) == 0:
             raise InvalidPDFError("PDF document is empty")
         font_histogram, heading_levels = self.analyze_font_sizes(doc)
+        self.font_size_histogram = font_histogram
+        self.heading_levels = heading_levels
         title = self._extract_title(doc, heading_levels)
         sections = self._build_sections(self._iter_lines(doc), heading_levels)
         processing_time = time.time() - start_time
@@ -554,7 +574,7 @@ class PDFStructureExtractor:
     def _title_candidates(self, page: fitz.Page) -> list[tuple[float, float, str]]:
         """Build scored title candidates from complete first-page lines."""
         candidates: list[tuple[float, float, str]] = []
-        for block in page.get_text("dict").get("blocks", []):
+        for block in self._page_text_dict(page, 0).get("blocks", []):
             for line in block.get("lines", []):
                 candidate = self._score_title_line(line, page.rect)
                 if candidate:

@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import __version__, extract_pdf_to_dict
+from . import __version__, extract_pdf_to_dict, write_text_atomically
 from .exceptions import PdfToJsonError
 
 
@@ -71,7 +71,7 @@ def _run_single(pdf_path: Path, output: str | None, compact: bool) -> None:
     result = extract_pdf_to_dict(str(pdf_path))
     json_str = _serialize(result, compact)
     if output:
-        Path(output).write_text(json_str, encoding="utf-8")
+        write_text_atomically(output, json_str)
         print(f"Successfully extracted PDF content to '{output}'")
         return
     sys.stdout.buffer.write(json_str.encode("utf-8"))

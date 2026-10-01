@@ -10,7 +10,7 @@ import pymupdf as fitz
 import pytest
 
 from pdf_2_json_extractor.config import Config
-from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
+from pdf_2_json_extractor.exceptions import ConfigError, InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
 from pdf_2_json_extractor.extractor import PDFStructureExtractor
 
 
@@ -50,6 +50,12 @@ class TestExtractTextWithStructure:
         assert len(result["sections"]) > 0
         assert result["stats"]["page_count"] > 0
         assert result["stats"]["processing_time"] > 0
+        assert dict(extractor.font_size_histogram) == {
+            float(size): count for size, count in result["font_histogram"].items()
+        }
+        assert extractor.heading_levels == {
+            float(size): level for size, level in result["heading_levels"].items()
+        }
 
     def test_page_traceability_is_disabled_by_default(self, real_pdf_path: Path):
         """Default output should preserve paragraph strings and section shape."""
@@ -114,6 +120,33 @@ class TestExtractTextWithStructure:
         extractor = PDFStructureExtractor()
         with pytest.raises(InvalidPDFError):
             extractor.extract_text_with_structure(str(empty_file_pdf_path))
+
+    def test_empty_document_stays_invalid_pdf_error(self, tmp_path: Path):
+        """A valid PDF with no pages should stay InvalidPDFError."""
+        pdf_path = tmp_path / "zero_pages.pdf"
+        pdf_path.write_bytes(
+            b"%PDF-1.4\n"
+            b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+            b"xref\n0 3\n0000000000 65535 f \n0000000009 00000 n \n0000000062 00000 n \n"
+            b"trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n116\n%%EOF\n"
+        )
+
+        extractor = PDFStructureExtractor()
+        with pytest.raises(InvalidPDFError, match="empty"):
+            extractor.extract_text_with_structure(str(pdf_path))
+
+    def test_encrypted_pdf_requires_password(self, tmp_path: Path):
+        """Password-protected PDFs should fail with a password-aware processing error."""
+        pdf_path = tmp_path / "locked.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="secret")
+        doc.close()
+
+        extractor = PDFStructureExtractor()
+        with pytest.raises(PDFProcessingError, match="password"):
+            extractor.extract_text_with_structure(str(pdf_path))
 
 
 class TestStreamingExtraction:
@@ -267,6 +300,56 @@ class TestStreamingExtraction:
             extractor.extract_text_with_structure(str(pdf_path))
 
         assert document.exited is True
+
+    def test_native_text_dict_is_parsed_once_per_page(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Font analysis, title scoring, and line iteration should share one page parse."""
+        pdf_path = tmp_path / "two_pages.pdf"
+        doc = fitz.open()
+        first = doc.new_page()
+        first.insert_text((72, 72), "First Heading", fontsize=18)
+        first.insert_text((72, 120), "First body text", fontsize=12)
+        second = doc.new_page()
+        second.insert_text((72, 72), "Second Heading", fontsize=18)
+        second.insert_text((72, 120), "Second body text", fontsize=12)
+        doc.save(pdf_path)
+        doc.close()
+
+        counts: dict[int, int] = {}
+        original_get_text = fitz.Page.get_text
+
+        def counted_get_text(page, *args, **kwargs):
+            if args and args[0] == "dict" and "textpage" not in kwargs:
+                counts[page.number] = counts.get(page.number, 0) + 1
+            return original_get_text(page, *args, **kwargs)
+
+        monkeypatch.setattr(fitz.Page, "get_text", counted_get_text)
+        PDFStructureExtractor().extract_text_with_structure(str(pdf_path))
+
+        assert counts == {0: 1, 1: 1}
+
+    def test_reused_extractor_does_not_keep_another_document_pages(self, tmp_path: Path):
+        """A prior font-analysis pass must not leak text into the next extract."""
+        first_path = tmp_path / "first.pdf"
+        second_path = tmp_path / "second.pdf"
+        for path, text in ((first_path, "ALPHA UNIQUE"), (second_path, "BETA UNIQUE")):
+            doc = fitz.open()
+            page = doc.new_page()
+            page.insert_text((72, 72), text, fontsize=14)
+            doc.save(path)
+            doc.close()
+
+        extractor = PDFStructureExtractor()
+        with fitz.open(first_path) as first_doc:
+            extractor.analyze_font_sizes(first_doc)
+
+        result = extractor.extract_text_with_structure(str(second_path))
+        paragraphs = [paragraph for section in result["sections"] for paragraph in section["paragraphs"]]
+        text = " ".join(str(paragraph) for paragraph in paragraphs)
+
+        assert "BETA UNIQUE" in text
+        assert "ALPHA UNIQUE" not in text
 
 
 class TestMultiColumnOrdering:
@@ -541,7 +624,7 @@ class TestOCRFallback:
             self.ocr_languages: list[str] = []
             self.textpage = object()
 
-        def get_text(self, output: str, textpage: object | None = None) -> dict:
+        def get_text(self, output: str, textpage: object | None = None, **kwargs: object) -> dict:
             assert output == "dict"
             if textpage is self.textpage:
                 return {"blocks": TestOCRFallback._blocks(self.ocr_text)}
@@ -684,6 +767,20 @@ class TestParagraphGrouping:
         config.INCLUDE_PAGE_NUMBERS = True
 
         assert PDFStructureExtractor(config)._format_paragraphs([[]]) == []
+
+    def test_joins_soft_hyphenated_line_breaks(self):
+        """A trailing soft hyphen should glue the next line without a space."""
+        extractor = PDFStructureExtractor()
+        paragraphs = [[{"text": "hyphen\u00ad", "page": 0}, {"text": "ation", "page": 0}]]
+
+        assert extractor._format_paragraphs(paragraphs) == ["hyphenation"]
+
+    def test_keeps_hard_hyphen_line_breaks(self):
+        """A visible hyphen should stay a word break, not a join."""
+        extractor = PDFStructureExtractor()
+        paragraphs = [[{"text": "well-", "page": 0}, {"text": "known", "page": 0}]]
+
+        assert extractor._format_paragraphs(paragraphs) == ["well- known"]
 
     def test_handles_single_line(self):
         """Single line should be its own paragraph."""
@@ -873,7 +970,7 @@ class TestTitleExtraction:
         class FakePage:
             rect = fitz.Rect(0, 0, 600, 800)
 
-            def get_text(self, output: str) -> dict:
+            def get_text(self, output: str, **kwargs: object) -> dict:
                 assert output == "dict"
                 return {
                     "blocks": [
@@ -910,7 +1007,7 @@ class TestTitleExtraction:
         class FakePage:
             rect = fitz.Rect(0, 0, 600, 800)
 
-            def get_text(self, output: str) -> dict:
+            def get_text(self, output: str, **kwargs: object) -> dict:
                 assert output == "dict"
                 return {
                     "blocks": [
@@ -951,7 +1048,7 @@ class TestTitleExtraction:
         class FakePage:
             rect = fitz.Rect(0, 0, 600, 800)
 
-            def get_text(self, output: str) -> dict:
+            def get_text(self, output: str, **kwargs: object) -> dict:
                 assert output == "dict"
                 return {
                     "blocks": [
@@ -1049,6 +1146,51 @@ class TestConfig:
         # config2 should be unchanged
         assert config2.MAX_PAGES_FOR_FONT_ANALYSIS == 10
         assert config1.MAX_PAGES_FOR_FONT_ANALYSIS == 99
+
+    def test_invalid_integer_env_names_the_variable(self, monkeypatch: pytest.MonkeyPatch):
+        """Non-numeric integer settings should name the environment variable."""
+        monkeypatch.setenv("PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS", "ten")
+
+        with pytest.raises(ConfigError, match="PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS"):
+            Config()
+
+    def test_invalid_float_env_names_the_variable(self, monkeypatch: pytest.MonkeyPatch):
+        """Non-numeric float settings should name the environment variable."""
+        monkeypatch.setenv("PDF_TO_JSON_MIN_HEADING_FREQUENCY", "low")
+
+        with pytest.raises(ConfigError, match="PDF_TO_JSON_MIN_HEADING_FREQUENCY"):
+            Config()
+
+    def test_rejects_out_of_range_numeric_settings(self, monkeypatch: pytest.MonkeyPatch):
+        """Numeric configuration must stay inside the documented ranges."""
+        monkeypatch.setenv("PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS", "0")
+        with pytest.raises(ConfigError, match="MAX_PAGES_FOR_FONT_ANALYSIS"):
+            Config()
+
+        monkeypatch.delenv("PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS")
+        monkeypatch.setenv("PDF_TO_JSON_MIN_HEADING_FREQUENCY", "1.5")
+        with pytest.raises(ConfigError, match="MIN_HEADING_FREQUENCY"):
+            Config()
+
+        monkeypatch.delenv("PDF_TO_JSON_MIN_HEADING_FREQUENCY")
+        monkeypatch.setenv("PDF_TO_JSON_MAX_HEADING_LEVELS", "7")
+        with pytest.raises(ConfigError, match="MAX_HEADING_LEVELS"):
+            Config()
+
+    def test_extraction_rejects_mutated_out_of_range_config(self, tmp_path: Path):
+        """Later assignment of invalid values should fail when extraction starts."""
+        pdf_path = tmp_path / "config.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+
+        config = Config()
+        config.MAX_HEADING_LEVELS = 0
+        extractor = PDFStructureExtractor(config)
+
+        with pytest.raises(ConfigError, match="MAX_HEADING_LEVELS"):
+            extractor.extract_text_with_structure(str(pdf_path))
 
 
 if __name__ == "__main__":

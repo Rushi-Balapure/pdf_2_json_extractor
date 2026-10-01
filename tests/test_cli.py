@@ -65,6 +65,19 @@ class TestCLIBasicUsage:
         assert "title" in saved
         assert "sections" in saved
 
+    def test_single_file_output_overwrites_existing_file(
+        self, real_pdf_path: Path, temp_json_output_path: Path
+    ):
+        """Single-file output should replace an existing destination atomically."""
+        temp_json_output_path.write_text("stale", encoding="utf-8")
+
+        result = run_cli(str(real_pdf_path), "-o", str(temp_json_output_path))
+
+        assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}"
+        saved = json.loads(temp_json_output_path.read_text(encoding="utf-8"))
+        assert "title" in saved
+        assert "sections" in saved
+
     def test_compact_output(self, real_pdf_path: Path):
         """--compact should produce minified JSON."""
         result = run_cli(str(real_pdf_path), "--compact")
