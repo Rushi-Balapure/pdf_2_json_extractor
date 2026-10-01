@@ -295,6 +295,34 @@ class TestStreamingExtraction:
 
         assert document.exited is True
 
+    def test_native_text_dict_is_parsed_once_per_page(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Font analysis, title scoring, and line iteration should share one page parse."""
+        pdf_path = tmp_path / "two_pages.pdf"
+        doc = fitz.open()
+        first = doc.new_page()
+        first.insert_text((72, 72), "First Heading", fontsize=18)
+        first.insert_text((72, 120), "First body text", fontsize=12)
+        second = doc.new_page()
+        second.insert_text((72, 72), "Second Heading", fontsize=18)
+        second.insert_text((72, 120), "Second body text", fontsize=12)
+        doc.save(pdf_path)
+        doc.close()
+
+        counts: dict[int, int] = {}
+        original_get_text = fitz.Page.get_text
+
+        def counted_get_text(page, *args, **kwargs):
+            if args and args[0] == "dict" and "textpage" not in kwargs:
+                counts[page.number] = counts.get(page.number, 0) + 1
+            return original_get_text(page, *args, **kwargs)
+
+        monkeypatch.setattr(fitz.Page, "get_text", counted_get_text)
+        PDFStructureExtractor().extract_text_with_structure(str(pdf_path))
+
+        assert counts == {0: 1, 1: 1}
+
 
 class TestMultiColumnOrdering:
     """Test visual reading order for multi-column documents."""
@@ -568,7 +596,7 @@ class TestOCRFallback:
             self.ocr_languages: list[str] = []
             self.textpage = object()
 
-        def get_text(self, output: str, textpage: object | None = None) -> dict:
+        def get_text(self, output: str, textpage: object | None = None, **kwargs: object) -> dict:
             assert output == "dict"
             if textpage is self.textpage:
                 return {"blocks": TestOCRFallback._blocks(self.ocr_text)}
@@ -900,7 +928,7 @@ class TestTitleExtraction:
         class FakePage:
             rect = fitz.Rect(0, 0, 600, 800)
 
-            def get_text(self, output: str) -> dict:
+            def get_text(self, output: str, **kwargs: object) -> dict:
                 assert output == "dict"
                 return {
                     "blocks": [
@@ -937,7 +965,7 @@ class TestTitleExtraction:
         class FakePage:
             rect = fitz.Rect(0, 0, 600, 800)
 
-            def get_text(self, output: str) -> dict:
+            def get_text(self, output: str, **kwargs: object) -> dict:
                 assert output == "dict"
                 return {
                     "blocks": [
@@ -978,7 +1006,7 @@ class TestTitleExtraction:
         class FakePage:
             rect = fitz.Rect(0, 0, 600, 800)
 
-            def get_text(self, output: str) -> dict:
+            def get_text(self, output: str, **kwargs: object) -> dict:
                 assert output == "dict"
                 return {
                     "blocks": [

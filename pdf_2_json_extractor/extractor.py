@@ -48,6 +48,7 @@ class PDFStructureExtractor:
         self.config = config or Config()
         self.font_size_histogram: defaultdict[float, int] = defaultdict(int)
         self.heading_levels: dict[float, str] = {}
+        self._page_text_cache: dict[int, dict[str, Any]] = {}
 
     def analyze_font_sizes(self, doc: fitz.Document) -> tuple[dict[float, int], dict[float, str]]:
         """Analyze font sizes across the document to determine heading levels."""
@@ -57,7 +58,7 @@ class PDFStructureExtractor:
         max_pages = min(len(doc), self.config.MAX_PAGES_FOR_FONT_ANALYSIS)
 
         for page_num in range(max_pages):
-            blocks = doc[page_num].get_text("dict").get("blocks", [])
+            blocks = self._page_text_dict(doc[page_num], page_num).get("blocks", [])
             for block in blocks:
                 lines = block.get("lines")
                 if not lines:
@@ -86,11 +87,20 @@ class PDFStructureExtractor:
 
         return font_histogram, heading_levels
 
+    def _page_text_dict(self, page: fitz.Page, page_num: int) -> dict[str, Any]:
+        """Return cached native text blocks for one page."""
+        cached = self._page_text_cache.get(page_num)
+        if cached is not None:
+            return cached
+        text_dict = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+        self._page_text_cache[page_num] = text_dict
+        return text_dict
+
     def _iter_lines(self, doc: fitz.Document) -> Iterator[dict[str, Any]]:
         """Yield lines with their concatenated text, max font size, and y-position bounds."""
         for page_num in range(len(doc)):
             page = doc[page_num]
-            blocks = page.get_text("dict").get("blocks", [])
+            blocks = self._page_text_dict(page, page_num).get("blocks", [])
             lines = list(self._iter_lines_from_blocks(page_num, blocks))
             if not lines:
                 lines = list(self._iter_page_ocr(page_num, page))
@@ -502,6 +512,8 @@ class PDFStructureExtractor:
         except Exception as e:
             logger.error(f"Error processing PDF: {e}")
             raise PDFProcessingError(f"Failed to process PDF: {e}")
+        finally:
+            self._page_text_cache.clear()
 
     def _extract_document(self, doc: fitz.Document, start_time: float) -> dict[str, Any]:
         """Extract one open document and return the public result dictionary."""
@@ -557,7 +569,7 @@ class PDFStructureExtractor:
     def _title_candidates(self, page: fitz.Page) -> list[tuple[float, float, str]]:
         """Build scored title candidates from complete first-page lines."""
         candidates: list[tuple[float, float, str]] = []
-        for block in page.get_text("dict").get("blocks", []):
+        for block in self._page_text_dict(page, 0).get("blocks", []):
             for line in block.get("lines", []):
                 candidate = self._score_title_line(line, page.rect)
                 if candidate:
