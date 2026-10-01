@@ -487,6 +487,7 @@ class PDFStructureExtractor:
             PDFProcessingError: If processing fails
         """
         start_time = time.time()
+        self.config.validate()
 
         if not os.path.exists(pdf_path):
             raise PDFFileNotFoundError(f"PDF file not found: {pdf_path}")

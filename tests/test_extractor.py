@@ -10,7 +10,7 @@ import pymupdf as fitz
 import pytest
 
 from pdf_2_json_extractor.config import Config
-from pdf_2_json_extractor.exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
+from pdf_2_json_extractor.exceptions import ConfigError, InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
 from pdf_2_json_extractor.extractor import PDFStructureExtractor
 
 
@@ -1076,6 +1076,51 @@ class TestConfig:
         # config2 should be unchanged
         assert config2.MAX_PAGES_FOR_FONT_ANALYSIS == 10
         assert config1.MAX_PAGES_FOR_FONT_ANALYSIS == 99
+
+    def test_invalid_integer_env_names_the_variable(self, monkeypatch: pytest.MonkeyPatch):
+        """Non-numeric integer settings should name the environment variable."""
+        monkeypatch.setenv("PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS", "ten")
+
+        with pytest.raises(ConfigError, match="PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS"):
+            Config()
+
+    def test_invalid_float_env_names_the_variable(self, monkeypatch: pytest.MonkeyPatch):
+        """Non-numeric float settings should name the environment variable."""
+        monkeypatch.setenv("PDF_TO_JSON_MIN_HEADING_FREQUENCY", "low")
+
+        with pytest.raises(ConfigError, match="PDF_TO_JSON_MIN_HEADING_FREQUENCY"):
+            Config()
+
+    def test_rejects_out_of_range_numeric_settings(self, monkeypatch: pytest.MonkeyPatch):
+        """Numeric configuration must stay inside the documented ranges."""
+        monkeypatch.setenv("PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS", "0")
+        with pytest.raises(ConfigError, match="MAX_PAGES_FOR_FONT_ANALYSIS"):
+            Config()
+
+        monkeypatch.delenv("PDF_TO_JSON_MAX_PAGES_FOR_FONT_ANALYSIS")
+        monkeypatch.setenv("PDF_TO_JSON_MIN_HEADING_FREQUENCY", "1.5")
+        with pytest.raises(ConfigError, match="MIN_HEADING_FREQUENCY"):
+            Config()
+
+        monkeypatch.delenv("PDF_TO_JSON_MIN_HEADING_FREQUENCY")
+        monkeypatch.setenv("PDF_TO_JSON_MAX_HEADING_LEVELS", "7")
+        with pytest.raises(ConfigError, match="MAX_HEADING_LEVELS"):
+            Config()
+
+    def test_extraction_rejects_mutated_out_of_range_config(self, tmp_path: Path):
+        """Later assignment of invalid values should fail when extraction starts."""
+        pdf_path = tmp_path / "config.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path)
+        doc.close()
+
+        config = Config()
+        config.MAX_HEADING_LEVELS = 0
+        extractor = PDFStructureExtractor(config)
+
+        with pytest.raises(ConfigError, match="MAX_HEADING_LEVELS"):
+            extractor.extract_text_with_structure(str(pdf_path))
 
 
 if __name__ == "__main__":

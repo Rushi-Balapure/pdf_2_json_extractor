@@ -6,15 +6,29 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from .exceptions import ConfigError
+
 
 def _env_int(key: str, default: int) -> int:
     """Read an integer from environment variable with fallback."""
-    return int(os.getenv(key, str(default)))
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Environment variable {key} must be an integer, got {raw!r}") from exc
 
 
 def _env_float(key: str, default: float) -> float:
     """Read a float from environment variable with fallback."""
-    return float(os.getenv(key, str(default)))
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ConfigError(f"Environment variable {key} must be a number, got {raw!r}") from exc
 
 
 def _env_bool(key: str, default: bool) -> bool:
@@ -76,6 +90,19 @@ class Config:
     INCLUDE_PAGE_NUMBERS: bool = field(
         default_factory=lambda: _env_bool("PDF_TO_JSON_INCLUDE_PAGE_NUMBERS", False)
     )
+
+    def __post_init__(self) -> None:
+        """Validate numeric ranges after construction."""
+        self.validate()
+
+    def validate(self) -> None:
+        """Raise ConfigError when numeric settings are outside supported ranges."""
+        if self.MAX_PAGES_FOR_FONT_ANALYSIS < 1:
+            raise ConfigError("MAX_PAGES_FOR_FONT_ANALYSIS must be at least 1")
+        if not 0.0 <= self.MIN_HEADING_FREQUENCY <= 1.0:
+            raise ConfigError("MIN_HEADING_FREQUENCY must be between 0 and 1")
+        if not 1 <= self.MAX_HEADING_LEVELS <= 6:
+            raise ConfigError("MAX_HEADING_LEVELS must be between 1 and 6")
 
     def get_config(self) -> dict[str, Any]:
         """Return configuration as dictionary."""

@@ -17,3 +17,7 @@ class InvalidPDFError(PdfToJsonError):
 
 class PDFFileNotFoundError(PdfToJsonError):
     """Raised when the PDF file is not found."""
+
+
+class ConfigError(PdfToJsonError):
+    """Raised when extractor configuration is invalid."""

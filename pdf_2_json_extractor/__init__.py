@@ -21,7 +21,7 @@ import json
 from typing import Any
 
 from .config import Config
-from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError, PdfToJsonError
+from .exceptions import ConfigError, InvalidPDFError, PDFFileNotFoundError, PDFProcessingError, PdfToJsonError
 from .extractor import PDFStructureExtractor
 
 __all__ = [
@@ -31,6 +31,7 @@ __all__ = [
     "PDFProcessingError",
     "PDFFileNotFoundError",
     "InvalidPDFError",
+    "ConfigError",
     "extract_pdf_to_json",
     "extract_pdf_to_dict",
 ]
