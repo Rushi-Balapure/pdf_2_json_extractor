@@ -115,6 +115,21 @@ class TestExtractTextWithStructure:
         with pytest.raises(InvalidPDFError):
             extractor.extract_text_with_structure(str(empty_file_pdf_path))
 
+    def test_empty_document_stays_invalid_pdf_error(self, tmp_path: Path):
+        """A valid PDF with no pages should stay InvalidPDFError."""
+        pdf_path = tmp_path / "zero_pages.pdf"
+        pdf_path.write_bytes(
+            b"%PDF-1.4\n"
+            b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+            b"xref\n0 3\n0000000000 65535 f \n0000000009 00000 n \n0000000062 00000 n \n"
+            b"trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n116\n%%EOF\n"
+        )
+
+        extractor = PDFStructureExtractor()
+        with pytest.raises(InvalidPDFError, match="empty"):
+            extractor.extract_text_with_structure(str(pdf_path))
+
 
 class TestStreamingExtraction:
     """Test incremental section assembly and PDF resource cleanup."""

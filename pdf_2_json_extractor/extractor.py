@@ -13,7 +13,7 @@ from typing import Any
 import pymupdf as fitz  # PyMuPDF
 
 from .config import Config
-from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError
+from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingError, PdfToJsonError
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +496,7 @@ class PDFStructureExtractor:
                 return self._extract_document(doc, start_time)
         except fitz.FileDataError as e:
             raise InvalidPDFError(f"Invalid or corrupted PDF file: {e}")
-        except PDFProcessingError:
+        except PdfToJsonError:
             raise
         except Exception as e:
             logger.error(f"Error processing PDF: {e}")
