@@ -5,6 +5,7 @@ These tests use real PDFs, no mocks. If something breaks here, it's actually bro
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,21 @@ class TestExtractPdfToJson:
         assert "title" in saved_result
         assert "sections" in saved_result
         assert saved_result["stats"]["page_count"] > 0
+
+    def test_failed_publish_leaves_existing_file_intact(
+        self, real_pdf_path: Path, temp_json_output_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A failed replace should not truncate an existing JSON file."""
+        temp_json_output_path.write_text("old contents", encoding="utf-8")
+
+        def exploding_replace(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
+            raise OSError("publish failed")
+
+        monkeypatch.setattr(os, "replace", exploding_replace)
+        with pytest.raises(OSError, match="publish failed"):
+            extract_pdf_to_json(str(real_pdf_path), str(temp_json_output_path))
+
+        assert temp_json_output_path.read_text(encoding="utf-8") == "old contents"
 
     def test_json_is_utf8_encoded(self, real_pdf_path: Path, temp_json_output_path: Path):
         """Verify the JSON output handles unicode properly."""

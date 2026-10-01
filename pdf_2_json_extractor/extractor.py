@@ -7,7 +7,6 @@ import os
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from typing import Any
 
 import pymupdf as fitz  # PyMuPDF
@@ -17,20 +16,6 @@ from .exceptions import InvalidPDFError, PDFFileNotFoundError, PDFProcessingErro
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class FontInfo:
-    """Font information for text spans."""
-    size: float
-    name: str
-    flags: int
-
-@dataclass
-class TextSpan:
-    """Text span with font and layout information."""
-    text: str
-    font_info: FontInfo
-    bbox: tuple
-    level: str | None = None
 
 class PDFStructureExtractor:
     """
@@ -432,12 +417,26 @@ class PDFStructureExtractor:
         for paragraph in paragraphs:
             if not paragraph:
                 continue
-            text = " ".join(line["text"] for line in paragraph)
+            text = self._join_paragraph_text(paragraph)
             if self.config.INCLUDE_PAGE_NUMBERS:
                 formatted.append({"text": text, "page": int(paragraph[0].get("page") or 0) + 1})
             else:
                 formatted.append(text)
         return formatted
+
+    @staticmethod
+    def _join_paragraph_text(paragraph: list[dict[str, Any]]) -> str:
+        """Join paragraph lines, collapsing a trailing soft hyphen into the next word."""
+        joined = ""
+        for line in paragraph:
+            text = str(line["text"])
+            if not joined:
+                joined = text
+            elif joined.endswith("\u00ad"):
+                joined = joined[:-1] + text
+            else:
+                joined = f"{joined} {text}"
+        return joined
 
     def _append_paragraph(
         self,
@@ -522,6 +521,8 @@ class PDFStructureExtractor:
         if len(doc) == 0:
             raise InvalidPDFError("PDF document is empty")
         font_histogram, heading_levels = self.analyze_font_sizes(doc)
+        self.font_size_histogram = font_histogram
+        self.heading_levels = heading_levels
         title = self._extract_title(doc, heading_levels)
         sections = self._build_sections(self._iter_lines(doc), heading_levels)
         processing_time = time.time() - start_time

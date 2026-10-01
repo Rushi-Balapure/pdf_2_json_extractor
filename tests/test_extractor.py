@@ -50,6 +50,12 @@ class TestExtractTextWithStructure:
         assert len(result["sections"]) > 0
         assert result["stats"]["page_count"] > 0
         assert result["stats"]["processing_time"] > 0
+        assert dict(extractor.font_size_histogram) == {
+            float(size): count for size, count in result["font_histogram"].items()
+        }
+        assert extractor.heading_levels == {
+            float(size): level for size, level in result["heading_levels"].items()
+        }
 
     def test_page_traceability_is_disabled_by_default(self, real_pdf_path: Path):
         """Default output should preserve paragraph strings and section shape."""
@@ -739,6 +745,20 @@ class TestParagraphGrouping:
         config.INCLUDE_PAGE_NUMBERS = True
 
         assert PDFStructureExtractor(config)._format_paragraphs([[]]) == []
+
+    def test_joins_soft_hyphenated_line_breaks(self):
+        """A trailing soft hyphen should glue the next line without a space."""
+        extractor = PDFStructureExtractor()
+        paragraphs = [[{"text": "hyphen\u00ad", "page": 0}, {"text": "ation", "page": 0}]]
+
+        assert extractor._format_paragraphs(paragraphs) == ["hyphenation"]
+
+    def test_keeps_hard_hyphen_line_breaks(self):
+        """A visible hyphen should stay a word break, not a join."""
+        extractor = PDFStructureExtractor()
+        paragraphs = [[{"text": "well-", "page": 0}, {"text": "known", "page": 0}]]
+
+        assert extractor._format_paragraphs(paragraphs) == ["well- known"]
 
     def test_handles_single_line(self):
         """Single line should be its own paragraph."""

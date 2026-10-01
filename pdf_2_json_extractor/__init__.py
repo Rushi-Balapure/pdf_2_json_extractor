@@ -18,6 +18,9 @@ __author__ = "Rushi Balapure"
 __email__ = "rishibalapure12@gmail.com"
 
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from .config import Config
@@ -57,10 +60,23 @@ def extract_pdf_to_json(pdf_path: str, output_path: str | None = None) -> str:
     json_str = json.dumps(result, ensure_ascii=False, indent=2)
 
     if output_path:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(json_str)
+        write_text_atomically(output_path, json_str)
         return output_path
     return json_str
+
+
+def write_text_atomically(output_path: str | os.PathLike[str], content: str) -> None:
+    """Write UTF-8 text by replacing the destination only after the temp file is complete."""
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=".pdf2json-", suffix=".tmp", dir=destination.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(temporary_name, destination)
+    except Exception:
+        Path(temporary_name).unlink(missing_ok=True)
+        raise
 
 
 def extract_pdf_to_dict(pdf_path: str) -> dict[str, Any]:
