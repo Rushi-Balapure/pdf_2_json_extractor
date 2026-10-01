@@ -504,6 +504,8 @@ class PDFStructureExtractor:
 
     def _extract_document(self, doc: fitz.Document, start_time: float) -> dict[str, Any]:
         """Extract one open document and return the public result dictionary."""
+        if getattr(doc, "needs_pass", False):
+            raise PDFProcessingError("PDF is password-protected and cannot be extracted without a password")
         if len(doc) == 0:
             raise InvalidPDFError("PDF document is empty")
         font_histogram, heading_levels = self.analyze_font_sizes(doc)

@@ -130,6 +130,18 @@ class TestExtractTextWithStructure:
         with pytest.raises(InvalidPDFError, match="empty"):
             extractor.extract_text_with_structure(str(pdf_path))
 
+    def test_encrypted_pdf_requires_password(self, tmp_path: Path):
+        """Password-protected PDFs should fail with a password-aware processing error."""
+        pdf_path = tmp_path / "locked.pdf"
+        doc = fitz.open()
+        doc.new_page()
+        doc.save(pdf_path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="secret")
+        doc.close()
+
+        extractor = PDFStructureExtractor()
+        with pytest.raises(PDFProcessingError, match="password"):
+            extractor.extract_text_with_structure(str(pdf_path))
+
 
 class TestStreamingExtraction:
     """Test incremental section assembly and PDF resource cleanup."""
