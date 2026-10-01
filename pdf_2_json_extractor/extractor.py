@@ -31,7 +31,7 @@ class PDFStructureExtractor:
             config (Config, optional): Configuration object. If None, uses default config.
         """
         self.config = config or Config()
-        self.font_size_histogram: defaultdict[float, int] = defaultdict(int)
+        self.font_size_histogram: dict[float, int] = {}
         self.heading_levels: dict[float, str] = {}
         self._page_text_cache: dict[tuple[int, int], dict[str, Any]] = {}
 
@@ -79,7 +79,8 @@ class PDFStructureExtractor:
         cached = self._page_text_cache.get(cache_key)
         if cached is not None:
             return cached
-        text_dict = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+        extracted = page.get_text("dict", flags=fitz.TEXTFLAGS_TEXT)
+        text_dict: dict[str, Any] = extracted if isinstance(extracted, dict) else {}
         self._page_text_cache[cache_key] = text_dict
         return text_dict
 
