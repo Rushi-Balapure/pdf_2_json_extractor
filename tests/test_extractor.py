@@ -661,7 +661,7 @@ class TestOCRFallback:
         extractor = PDFStructureExtractor(config)
         page = self.FakePage(native_text=None)
 
-        lines = list(extractor._iter_lines_ocr(self.FakeDocument([page])))
+        lines = list(extractor._iter_lines_ocr(self.FakeDocument([page])))  # ty: ignore[invalid-argument-type]
 
         assert lines[0]["text"] == "OCR text"
         assert page.ocr_languages == ["eng+fra"]
