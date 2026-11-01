@@ -672,7 +672,7 @@ class TestOCRFallback:
         native_page = self.FakePage(native_text="Native text")
         scanned_page = self.FakePage(native_text=None, ocr_text="Scanned text")
 
-        lines = list(extractor._iter_lines(self.FakeDocument([native_page, scanned_page])))
+        lines = list(extractor._iter_lines(self.FakeDocument([native_page, scanned_page])))  # ty: ignore[invalid-argument-type]
 
         assert [line["text"] for line in lines] == ["Native text", "Scanned text"]
         assert native_page.ocr_languages == []
