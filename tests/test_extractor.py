@@ -141,7 +141,7 @@ class TestExtractTextWithStructure:
         pdf_path = tmp_path / "locked.pdf"
         doc = fitz.open()
         doc.new_page()
-        doc.save(pdf_path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="secret")
+        doc.save(pdf_path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="secret")  # ty: ignore[unresolved-attribute]
         doc.close()
 
         extractor = PDFStructureExtractor()
@@ -178,7 +178,7 @@ class TestStreamingExtraction:
                         current_section = {"level": "content", "title": None, "paragraphs": []}
                         sections.append(current_section)
                     grouped = extractor._group_paragraphs(buffered)
-                    current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+                    current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))  # ty: ignore[unresolved-attribute]
                     buffered = []
                 current_section = {"level": level, "title": line["text"], "paragraphs": []}
                 if extractor.config.INCLUDE_PAGE_NUMBERS:
@@ -192,7 +192,7 @@ class TestStreamingExtraction:
                 current_section = {"level": "content", "title": None, "paragraphs": []}
                 sections.append(current_section)
             grouped = extractor._group_paragraphs(buffered)
-            current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+            current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))  # ty: ignore[unresolved-attribute]
         return sections
 
     def test_section_assembly_preserves_grouping_and_pages(self):
@@ -661,7 +661,7 @@ class TestOCRFallback:
         extractor = PDFStructureExtractor(config)
         page = self.FakePage(native_text=None)
 
-        lines = list(extractor._iter_lines_ocr(self.FakeDocument([page])))
+        lines = list(extractor._iter_lines_ocr(self.FakeDocument([page])))  # ty: ignore[invalid-argument-type]
 
         assert lines[0]["text"] == "OCR text"
         assert page.ocr_languages == ["eng+fra"]
@@ -672,7 +672,7 @@ class TestOCRFallback:
         native_page = self.FakePage(native_text="Native text")
         scanned_page = self.FakePage(native_text=None, ocr_text="Scanned text")
 
-        lines = list(extractor._iter_lines(self.FakeDocument([native_page, scanned_page])))
+        lines = list(extractor._iter_lines(self.FakeDocument([native_page, scanned_page])))  # ty: ignore[invalid-argument-type]
 
         assert [line["text"] for line in lines] == ["Native text", "Scanned text"]
         assert native_page.ocr_languages == []
@@ -692,7 +692,7 @@ class TestOCRFallback:
         failing_page = FailingPage(native_text=None)
 
         with pytest.raises(PDFProcessingError, match="page 2.*fra"):
-            list(extractor._iter_lines(self.FakeDocument([native_page, failing_page])))
+            list(extractor._iter_lines(self.FakeDocument([native_page, failing_page])))  # ty: ignore[invalid-argument-type]
 
 
 class TestFontAnalysis:
@@ -997,7 +997,7 @@ class TestTitleExtraction:
                 assert index == 0
                 return FakePage()
 
-        title = extractor._extract_title(FakeDocument(), {})
+        title = extractor._extract_title(FakeDocument(), {})  # ty: ignore[invalid-argument-type]
 
         assert title == "Structured PDF Title"
 
@@ -1038,7 +1038,7 @@ class TestTitleExtraction:
                 assert index == 0
                 return FakePage()
 
-        title = PDFStructureExtractor()._extract_title(FakeDocument(), {})
+        title = PDFStructureExtractor()._extract_title(FakeDocument(), {})  # ty: ignore[invalid-argument-type]
 
         assert title == "Short Title"
 
@@ -1079,7 +1079,7 @@ class TestTitleExtraction:
                 assert index == 0
                 return FakePage()
 
-        assert PDFStructureExtractor()._extract_title(FakeDocument(), {}) == "Brief Title"
+        assert PDFStructureExtractor()._extract_title(FakeDocument(), {}) == "Brief Title"  # ty: ignore[invalid-argument-type]
 
     def test_top_edge_text_can_be_a_real_title(self):
         """Non-decorative title text near the page top should remain eligible."""

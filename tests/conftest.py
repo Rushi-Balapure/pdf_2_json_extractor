@@ -35,7 +35,7 @@ def real_pdf_path(papers_dir: Path) -> Path:
     """
     pdf_path = papers_dir / "1751-0473-7-7.pdf"
     if not pdf_path.exists():
-        pytest.skip(f"Test PDF not found at {pdf_path}")
+        pytest.skip(f"Test PDF not found at {pdf_path}")  # ty: ignore[too-many-positional-arguments]
     return pdf_path
 
 
@@ -43,7 +43,7 @@ def real_pdf_path(papers_dir: Path) -> Path:
 def scanned_pdf_path(tmp_path: Path) -> Path:
     """Create a scanned-like PDF page (image only, no text layer)."""
     if shutil.which("tesseract") is None:
-        pytest.skip("tesseract is required for OCR fallback tests")
+        pytest.skip("tesseract is required for OCR fallback tests")  # ty: ignore[too-many-positional-arguments]
 
     source_pdf = tmp_path / "source_text.pdf"
     scanned_pdf = tmp_path / "scanned_like.pdf"
