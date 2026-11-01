@@ -178,7 +178,7 @@ class TestStreamingExtraction:
                         current_section = {"level": "content", "title": None, "paragraphs": []}
                         sections.append(current_section)
                     grouped = extractor._group_paragraphs(buffered)
-                    current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+                    current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))  # ty: ignore[unresolved-attribute]
                     buffered = []
                 current_section = {"level": level, "title": line["text"], "paragraphs": []}
                 if extractor.config.INCLUDE_PAGE_NUMBERS:
