@@ -997,7 +997,7 @@ class TestTitleExtraction:
                 assert index == 0
                 return FakePage()
 
-        title = extractor._extract_title(FakeDocument(), {})
+        title = extractor._extract_title(FakeDocument(), {})  # ty: ignore[invalid-argument-type]
 
         assert title == "Structured PDF Title"
 
