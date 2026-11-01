@@ -173,7 +173,7 @@ class TestCLIBatchUsage:
         try:
             linked_dir.symlink_to(input_dir, target_is_directory=True)
         except OSError:
-            pytest.skip("Symlink creation is unavailable on this platform")
+            pytest.skip("Symlink creation is unavailable on this platform")  # ty: ignore[too-many-positional-arguments]
 
         result = run_cli(str(linked_dir))
 
