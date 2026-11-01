@@ -192,7 +192,7 @@ class TestStreamingExtraction:
                 current_section = {"level": "content", "title": None, "paragraphs": []}
                 sections.append(current_section)
             grouped = extractor._group_paragraphs(buffered)
-            current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))
+            current_section["paragraphs"].extend(extractor._format_paragraphs(grouped))  # ty: ignore[unresolved-attribute]
         return sections
 
     def test_section_assembly_preserves_grouping_and_pages(self):
