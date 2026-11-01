@@ -692,7 +692,7 @@ class TestOCRFallback:
         failing_page = FailingPage(native_text=None)
 
         with pytest.raises(PDFProcessingError, match="page 2.*fra"):
-            list(extractor._iter_lines(self.FakeDocument([native_page, failing_page])))
+            list(extractor._iter_lines(self.FakeDocument([native_page, failing_page])))  # ty: ignore[invalid-argument-type]
 
 
 class TestFontAnalysis:
