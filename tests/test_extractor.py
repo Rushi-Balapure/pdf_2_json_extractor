@@ -141,7 +141,7 @@ class TestExtractTextWithStructure:
         pdf_path = tmp_path / "locked.pdf"
         doc = fitz.open()
         doc.new_page()
-        doc.save(pdf_path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="secret")
+        doc.save(pdf_path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="secret")  # ty: ignore[unresolved-attribute]
         doc.close()
 
         extractor = PDFStructureExtractor()
