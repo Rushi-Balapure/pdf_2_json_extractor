@@ -1079,7 +1079,7 @@ class TestTitleExtraction:
                 assert index == 0
                 return FakePage()
 
-        assert PDFStructureExtractor()._extract_title(FakeDocument(), {}) == "Brief Title"
+        assert PDFStructureExtractor()._extract_title(FakeDocument(), {}) == "Brief Title"  # ty: ignore[invalid-argument-type]
 
     def test_top_edge_text_can_be_a_real_title(self):
         """Non-decorative title text near the page top should remain eligible."""
