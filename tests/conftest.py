@@ -35,7 +35,7 @@ def real_pdf_path(papers_dir: Path) -> Path:
     """
     pdf_path = papers_dir / "1751-0473-7-7.pdf"
     if not pdf_path.exists():
-        pytest.skip(f"Test PDF not found at {pdf_path}")
+        pytest.skip(f"Test PDF not found at {pdf_path}")  # ty: ignore[too-many-positional-arguments]
     return pdf_path
 
 
